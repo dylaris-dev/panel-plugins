@@ -28,7 +28,7 @@ Download `dylaris-gateway-pterodactyl-<version>.pteroext` and `SHA256SUMS` from 
 before you install it:
 
 ```
-sha256sum --ignore-missing -c SHA256SUMS
+grep dylaris-gateway-pterodactyl-<version>.pteroext SHA256SUMS | sha256sum -c
 ```
 
 It must print `dylaris-gateway-pterodactyl-<version>.pteroext: OK`. Without `sha256sum`, compare the output of

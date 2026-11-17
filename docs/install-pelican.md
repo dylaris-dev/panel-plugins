@@ -27,7 +27,7 @@ Download `dylaris-gateway-pelican-<version>.zip` and `SHA256SUMS` from the lates
 before you install it:
 
 ```
-sha256sum --ignore-missing -c SHA256SUMS
+grep dylaris-gateway-pelican-<version>.zip SHA256SUMS | sha256sum -c
 ```
 
 It must print `dylaris-gateway-pelican-<version>.zip: OK`. Without `sha256sum`, compare the output of

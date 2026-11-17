@@ -45,7 +45,7 @@ They are for hosters on Pelican or Pterodactyl 2.0 who want their game servers r
 
 1. Download from [GitHub Releases](https://github.com/dylaris-dev/panel-plugins/releases):
    `dylaris-gateway-pelican-<version>.zip` for Pelican or `dylaris-gateway-pterodactyl-<version>.pteroext` for Pterodactyl 2.0, plus
-   `SHA256SUMS`. Check it with `sha256sum --ignore-missing -c SHA256SUMS`.
+   `SHA256SUMS`. Check it with `grep <file> SHA256SUMS | sha256sum -c` (works with the busybox `sha256sum` in the panel images too).
 2. Install it.
    - Pelican: unzip into `plugins/`, then `php artisan p:plugin:install dylaris-gateway`.
      Full guide: [docs/install-pelican.md](docs/install-pelican.md).
