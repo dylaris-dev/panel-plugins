@@ -53,16 +53,23 @@ final class ProviderClient
         return array_map(Route::fromArray(...), $this->request('GET', 'routes')['items'] ?? []);
     }
 
-    /** Creates the route, or retargets it when the domain already exists. */
+    /**
+     * Creates the route, or retargets it when the domain already exists. An empty $subdomain means $hosterDomain is an
+     * own domain, the whole address (ServerState::domain()).
+     */
     public function createRoute(string $linkId, string $subdomain, string $hosterDomain, string $targetHost, int $targetPort): void
     {
-        $this->request('POST', 'routes', [
-            'linkId' => $linkId,
-            'subdomain' => $subdomain,
-            'hosterDomain' => $hosterDomain,
+        $name = $subdomain === '' ? ['customDomain' => $hosterDomain] : ['subdomain' => $subdomain, 'hosterDomain' => $hosterDomain];
+        $this->request('POST', 'routes', ['linkId' => $linkId] + $name + [
             'targetHost' => $targetHost,
             'targetPort' => $targetPort,
         ]);
+    }
+
+    /** @return CustomDomain[] the account's own domains, verified or not */
+    public function customDomains(): array
+    {
+        return array_map(CustomDomain::fromArray(...), $this->request('GET', 'custom-domains')['items'] ?? []);
     }
 
     public function deleteRoute(string $domain): void

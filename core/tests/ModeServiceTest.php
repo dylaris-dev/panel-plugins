@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Dylaris\GatewayPanel\Tests;
 
+use Dylaris\GatewayPanel\AllowedDomain;
 use Dylaris\GatewayPanel\Allocation;
 use Dylaris\GatewayPanel\Mode;
 use Dylaris\GatewayPanel\ModeRefused;
@@ -637,5 +638,173 @@ final class ModeServiceTest extends TestCase
     public function testNotOfferedSentence(): void
     {
         $this->assertSame('Both is no longer offered on this node. The server keeps it until you switch to another mode.', ModeService::notOffered('Both'));
+    }
+
+    private function offer(AllowedDomain ...$domains): void
+    {
+        $this->store->putNode(new NodeState(1, 'link-1', 'e2e', self::ALL, '172.18.0.1', $domains));
+    }
+
+    public function testDomainChoicesDefaultToEveryHosterDomainOfTheProvider(): void
+    {
+        $choices = $this->svc->domainChoices(1, false);
+
+        $this->assertEquals([new AllowedDomain('play.e2e.test', false, false, 'alphanumeric')], $choices);
+        $this->assertSame(['GET regions'], $this->calls);
+    }
+
+    public function testSavedDomainsLeaveTheAdminsOnlyOnesOutForEveryoneElse(): void
+    {
+        $this->offer(new AllowedDomain('eu.example.test', false, false, 'letters'), new AllowedDomain('vip.example.com', true, true));
+
+        $this->assertSame(['eu.example.test'], array_map(fn ($d) => $d->domain, $this->svc->domainChoices(1, false)));
+        $this->assertSame(['eu.example.test', 'vip.example.com'], array_map(fn ($d) => $d->domain, $this->svc->domainChoices(1, true)));
+        $this->assertSame([], $this->calls, 'a saved list asks the provider nothing');
+
+        $this->assertSame('That domain is not offered for this server.', $this->refusal(fn () => $this->svc->apply(7, Mode::Both, null, false, 'vip.example.com')));
+        $this->svc->apply(7, Mode::Both, null, true, 'vip.example.com');
+        $this->assertSame('vip.example.com', $this->store->get(7)->domain());
+    }
+
+    public function testAFirstAddressTakesTheChosenHosterDomainAndLabel(): void
+    {
+        $this->offer(new AllowedDomain('eu.example.test', false, false, 'letters'), new AllowedDomain('us.example.test', false, false, 'letters'));
+
+        $this->svc->apply(7, Mode::Both, 'lobby', false, 'us.example.test');
+
+        $this->assertSame('lobby.us.example.test', $this->store->get(7)->domain());
+        $this->assertSame(['GET check-domain', 'POST routes'], $this->calls);
+        $this->assertSame(['subdomain' => 'lobby', 'hosterDomain' => 'us.example.test'], array_intersect_key($this->bodies[1], ['subdomain' => 1, 'hosterDomain' => 1]));
+    }
+
+    public function testAnOwnDomainIsTheWholeAddress(): void
+    {
+        $this->offer(new AllowedDomain('play.example.com', true));
+
+        $this->assertSame('', $this->svc->suggestLabel(7), 'an own domain takes no name');
+        $this->svc->apply(7, Mode::Both, 'ignored', false, 'play.example.com');
+
+        $s = $this->store->get(7);
+        $this->assertSame(['', 'play.example.com', 'play.example.com'], [$s->label, $s->hosterDomain, $s->domain()]);
+        $this->assertSame(['GET check-domain', 'POST routes'], $this->calls);
+        $this->assertSame(['linkId' => 'link-1', 'customDomain' => 'play.example.com', 'targetHost' => '172.18.0.1', 'targetPort' => 25565], $this->bodies[1]);
+    }
+
+    public function testAnUnverifiedOwnDomainIsRefusedByTheCheck(): void
+    {
+        $this->offer(new AllowedDomain('play.example.com', true));
+        $this->checkDomainBody = '{"available":false,"reason":"unverified","success":true}';
+
+        $this->assertSame('That domain is not verified for this account yet.', $this->refusal(fn () => $this->svc->apply(7, Mode::Both, null, false, 'play.example.com')));
+        $this->assertNull($this->store->get(7));
+    }
+
+    public function testAnAddressAnotherGatewayServerHoldsIsRefused(): void
+    {
+        $this->svc->apply(7, Mode::Both, 'lobby');
+        $this->panel->addServer(8, 1, $this->panel->addAllocation(1, '10.0.0.1', 25566));
+        $this->calls = [];
+
+        $this->assertSame('That address is already used by another server.', $this->refusal(fn () => $this->svc->apply(8, Mode::Both, 'lobby')));
+        $this->assertSame(['GET regions'], $this->calls, 'refused before the provider is asked');
+    }
+
+    public function testChangingTheAddressBehindTheGatewayCreatesTheNewRouteBeforeDeletingTheOld(): void
+    {
+        $this->svc->apply(7, Mode::GatewayOnly, 'old');
+        $this->svc->setRealIp(7, true);
+        $this->svc->setBedrock(7, true);
+        $this->calls = $this->bodies = $this->panel->calls = [];
+
+        $r = $this->svc->changeAddress(7, 'New', 'play.e2e.test');
+
+        $this->assertSame([
+            'GET regions', 'GET check-domain', 'GET routes', 'POST routes',
+            'PATCH routes/new.play.e2e.test/proxy-protocol', 'PUT routes/new.play.e2e.test/bedrock',
+            'DELETE routes/old.play.e2e.test',
+        ], $this->calls);
+        $this->assertSame('new', $this->bodies[3]['subdomain']);
+        $this->assertSame(['enabled' => true], $this->bodies[4]);
+        $this->assertSame([], $this->panelWrites(), 'allocations stay as they are');
+        $this->assertFalse($r->restartNeeded, 'the route target is unchanged, so no restart');
+        $this->assertSame('The gateway address is now new.play.e2e.test. The old address old.play.e2e.test no longer works: tell your players. Download the Floodgate key again and replace plugins/floodgate/key.pem: the new address has its own key.', $r->notice);
+        $s = $this->store->get(7);
+        $this->assertSame(['new.play.e2e.test', Mode::GatewayOnly, true, true], [$s->domain(), $s->mode, $s->proxyProtocol, $s->bedrock]);
+    }
+
+    public function testAFailedNewRouteLeavesTheOldAddressWorking(): void
+    {
+        $this->svc->apply(7, Mode::Both, 'old');
+        $before = $this->store->get(7);
+        $this->calls = [];
+        $this->responses['POST routes'] = new Response(503, [], '{}');
+
+        try {
+            $this->svc->changeAddress(7, 'new', 'play.e2e.test');
+            $this->fail('expected the change to fail');
+        } catch (ProviderException) {
+        }
+
+        $this->assertSame('DELETE routes/new.play.e2e.test', end($this->calls), 'the route the provider may have made is removed');
+        $this->assertNotContains('DELETE routes/old.play.e2e.test', $this->calls);
+        $this->assertEquals($before, $this->store->get(7));
+    }
+
+    public function testAFailedDeleteOfTheOldRouteKeepsTheNewAddress(): void
+    {
+        $this->svc->apply(7, Mode::Both, 'old');
+        $this->responses['DELETE routes/old.play.e2e.test'] = new Response(503, [], '{"code":"unavailable","error":"down"}');
+
+        $r = $this->svc->changeAddress(7, 'new', 'play.e2e.test');
+
+        $this->assertSame('The gateway address is now new.play.e2e.test.', $r->notice);
+        $s = $this->store->get(7);
+        $this->assertSame('new.play.e2e.test', $s->domain());
+        $this->assertSame('The address changed to new.play.e2e.test, but the old address old.play.e2e.test could not be removed: down It may still work; remove it in the DYLARIS dashboard.', $s->lastError);
+    }
+
+    public function testChangingTheAddressInDirectOnlyRemembersIt(): void
+    {
+        $r = $this->svc->changeAddress(7, 'later', 'play.e2e.test');
+
+        $this->assertSame('The address later.play.e2e.test is saved. It is used when the gateway is switched on.', $r->notice);
+        $this->assertSame(['GET regions', 'GET check-domain'], $this->calls);
+        $this->assertSame(Mode::Direct, $this->store->get(7)->mode);
+        $this->calls = [];
+
+        $this->svc->apply(7, Mode::Both);
+        $this->assertSame('later.play.e2e.test', $this->store->get(7)->domain());
+        $this->assertSame(['GET routes', 'POST routes'], $this->calls);
+    }
+
+    public function testChangingToANameAlreadyOnTheGatewayIsRefused(): void
+    {
+        $this->svc->apply(7, Mode::Both, 'old');
+        $this->routesBody = json_encode(['items' => [['domain' => 'new.play.e2e.test', 'link_id' => 'link-9']]]);
+
+        $this->assertSame('That address is already in use on the gateway.', $this->refusal(fn () => $this->svc->changeAddress(7, 'new', 'play.e2e.test')));
+        $this->assertSame('old.play.e2e.test', $this->store->get(7)->domain());
+        $this->assertSame('The server already has this address.', $this->svc->changeAddress(7, 'old', 'play.e2e.test')->notice);
+        $this->assertSame('Enter an address name.', $this->refusal(fn () => $this->svc->changeAddress(7, '', 'play.e2e.test')));
+    }
+
+    public function testAServerWhoseEggIsNotAllowedGetsNoGateway(): void
+    {
+        $this->panel->setGatewayAllowed(7, false);
+
+        $this->assertSame(ModeService::MINECRAFT_ONLY, $this->refusal(fn () => $this->svc->apply(7, Mode::Both, null, true)));
+        $this->assertSame(ModeService::MINECRAFT_ONLY, $this->refusal(fn () => $this->svc->changeAddress(7, 'x', 'play.e2e.test', true)));
+        $this->assertSame([], $this->calls);
+    }
+
+    public function testAServerAlreadyBehindTheGatewayWhenItsEggLeavesTheListOnlyGoesBackToDirectByAnAdmin(): void
+    {
+        $this->startIn(Mode::Both);
+        $this->panel->setGatewayAllowed(7, false);
+
+        $this->assertSame(ModeService::NO_LONGER_ALLOWED, $this->refusal(fn () => $this->svc->apply(7, Mode::Direct)));
+        $this->assertSame(ModeService::NO_LONGER_ALLOWED, $this->refusal(fn () => $this->svc->apply(7, Mode::GatewayOnly, null, true)));
+        $this->assertTrue($this->svc->apply(7, Mode::Direct, null, true)->restartNeeded);
+        $this->assertSame(Mode::Direct, $this->store->get(7)->mode);
     }
 }

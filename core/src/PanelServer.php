@@ -15,6 +15,8 @@ final readonly class PanelServer
         public array $allocations,
         /** The server's display name; the default address label is derived from it. */
         public string $name = '',
+        /** Whether the server's egg may use the gateway (the admin's egg list, by default the Java Minecraft eggs). */
+        public bool $gatewayAllowed = true,
     ) {
     }
 }

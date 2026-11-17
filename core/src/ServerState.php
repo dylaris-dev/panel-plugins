@@ -25,8 +25,14 @@ final class ServerState
     ) {
     }
 
+    /** An address on an own domain has no label: hosterDomain then holds the whole name. */
     public function domain(): string
     {
-        return $this->label . '.' . $this->hosterDomain;
+        return $this->label === '' ? $this->hosterDomain : $this->label . '.' . $this->hosterDomain;
+    }
+
+    public function hasAddress(): bool
+    {
+        return $this->hosterDomain !== '';
     }
 }

@@ -26,6 +26,12 @@ final class ModeService
     /** A page call while the provider's Retry-After from the last 429 still runs. */
     public const PROVIDER_BUSY = 'The gateway provider asked to wait a moment. Try again shortly.';
 
+    /** A server whose egg is not on the admin's list: the edge routes the Minecraft Java handshake only. */
+    public const MINECRAFT_ONLY = 'The gateway supports Minecraft servers only.';
+
+    /** A server that is already behind the gateway when its egg leaves the list keeps its route. */
+    public const NO_LONGER_ALLOWED = 'The gateway supports Minecraft servers only. This server keeps its gateway address until an admin switches it to Direct.';
+
     public const NOT_CONNECTED = "This node is not connected to the gateway yet. An admin connects it on the node's Gateway tab.";
 
     /** Shown before and after leaving Gateway only while Real player IP is on: the plugin writes no server files. */
@@ -49,7 +55,11 @@ final class ModeService
     ) {
     }
 
-    public function apply(int $serverId, Mode $to, ?string $label = null, bool $actorIsAdmin = false): ApplyResult
+    /**
+     * @param string|null $label  the name for a first address under a hoster domain; null or '' picks one
+     * @param string|null $domain the domain for a first address, one of domainChoices(); null takes the first
+     */
+    public function apply(int $serverId, Mode $to, ?string $label = null, bool $actorIsAdmin = false, ?string $domain = null): ApplyResult
     {
         $server = $this->panel->server($serverId) ?? throw new ModeRefused('This server no longer exists.');
         $state = $this->store->get($serverId);
@@ -57,6 +67,10 @@ final class ModeService
         // Checked before the node rules: a server keeps a mode the node no longer offers.
         if ($from === $to) {
             return new ApplyResult(false, '');
+        }
+        // An admin may still take a server whose egg left the list back to Direct; nobody may give it a route.
+        if (!$server->gatewayAllowed && ($to !== Mode::Direct || !$actorIsAdmin)) {
+            throw new ModeRefused($from === Mode::Direct ? self::MINECRAFT_ONLY : self::NO_LONGER_ALLOWED);
         }
 
         $node = $this->store->node($server->nodeId);
@@ -72,7 +86,7 @@ final class ModeService
         $next->nodeId = $server->nodeId;
         $next->lastError = null;
         if ($from === Mode::Direct) {
-            $this->ensureAddress($next, $label, $server);
+            $this->ensureAddress($next, $label, $domain, $server, $actorIsAdmin);
             $next->port = $server->primary->port;
             $next->publicPort = null;
             $next->proxyProtocol = false;
@@ -152,15 +166,111 @@ final class ModeService
         return $out;
     }
 
-    /** The address name to offer before the first switch: from the server's name, else a free random one. */
-    public function suggestLabel(int $serverId): string
+    /**
+     * The address name to offer before the first switch, under the first hoster domain the actor may pick: from the
+     * server's name, else a free random one. '' when only own domains are offered (they take no name).
+     */
+    public function suggestLabel(int $serverId, bool $actorIsAdmin = false): string
     {
         // A page view, not an action: it waits out the provider's Retry-After instead of spending the read budget.
         if (Reconciler::busyUntil($this->store->all()) > time()) {
             throw new ModeRefused(self::PROVIDER_BUSY);
         }
         $server = $this->panel->server($serverId) ?? throw new ModeRefused('This server no longer exists.');
-        return $this->freeLabel($server, $this->hosterDomain()) ?? AddressLabel::random();
+        foreach ($this->domainChoices($server->nodeId, $actorIsAdmin) as $d) {
+            if (!$d->custom) {
+                return $this->freeLabel($server, $d) ?? AddressLabel::random();
+            }
+        }
+        return '';
+    }
+
+    /**
+     * The domains the actor may pick for an address on this node: what the admin saved on the node's Gateway tab, the
+     * admins-only ones left out for everyone else. Never saved: every hoster domain the provider offers.
+     *
+     * @return AllowedDomain[]
+     */
+    public function domainChoices(int $nodeId, bool $actorIsAdmin): array
+    {
+        $saved = $this->store->node($nodeId)?->domains;
+        if ($saved === null) {
+            return array_map(fn (HosterDomain $h) => new AllowedDomain($h->domain, false, false, $h->validation), $this->provider->regions()->hosterDomains);
+        }
+        return array_values(array_filter($saved, fn (AllowedDomain $d) => $actorIsAdmin || !$d->adminOnly));
+    }
+
+    /**
+     * Gives the server a new address. In Direct only the remembered address changes. Behind the gateway the new route is
+     * made first, Real player IP and Bedrock are carried over, and the old route is deleted last: a failure before that
+     * deletes the new route again, so the server never ends up without an address. The old address stops working.
+     */
+    public function changeAddress(int $serverId, ?string $label, string $domain, bool $actorIsAdmin = false): ApplyResult
+    {
+        $server = $this->panel->server($serverId) ?? throw new ModeRefused('This server no longer exists.');
+        if (!$server->gatewayAllowed) {
+            throw new ModeRefused(self::MINECRAFT_ONLY);
+        }
+        $state = $this->store->get($serverId);
+        $next = $state !== null ? clone $state : new ServerState($serverId, Mode::Direct, '', '', $server->nodeId, $server->primary->port);
+        $next->lastError = null;
+        $entry = $this->choice($server->nodeId, $domain, $actorIsAdmin);
+        $label = strtolower(trim((string) $label));
+        if (!$entry->custom && $label === '') {
+            throw new ModeRefused('Enter an address name.');
+        }
+        [$next->label, $next->hosterDomain] = [$entry->custom ? '' : $label, $entry->domain];
+        $old = $state?->hasAddress() ? $state->domain() : null;
+        if ($old === $next->domain()) {
+            return new ApplyResult(false, 'The server already has this address.');
+        }
+        $this->checkNewAddress($next, $entry);
+
+        if ($next->mode === Mode::Direct) {
+            $this->store->put($next);
+            return new ApplyResult(false, "The address {$next->domain()} is saved. It is used when the gateway is switched on.");
+        }
+
+        $node = $this->store->node($server->nodeId);
+        if (($node?->linkId ?? '') === '') {
+            throw new ModeRefused(self::NOT_CONNECTED);
+        }
+        // check-domain calls a name this account already holds available; posting it would retarget that route.
+        foreach ($this->provider->listRoutes() as $route) {
+            if ($route->domain === $next->domain()) {
+                throw new ModeRefused('That address is already in use on the gateway.');
+            }
+        }
+        $undo = [];
+        try {
+            $this->createRoute($node, $next, $next->port, $undo, fn () => $this->deleteRoute($next->domain()));
+            if ($next->proxyProtocol) {
+                $this->provider->setProxyProtocol($next->domain(), true);
+            }
+            if ($next->bedrock) {
+                $this->provider->setEditions($next->domain(), true, true);
+            }
+        } catch (\Throwable $e) {
+            // Until here the old address works untouched; the new one is removed again.
+            $this->rollback($undo, $state);
+            throw $e;
+        }
+        // The new address works from here on. A failed delete of the old one is reported, never undone: undoing after
+        // a delete that got no answer could leave the server with no address at all.
+        try {
+            $this->deleteRoute((string) $old);
+            $notice = "The gateway address is now {$next->domain()}. The old address {$old} no longer works: tell your players.";
+        } catch (\Throwable $e) {
+            $next->lastError = "The address changed to {$next->domain()}, but the old address {$old} could not be removed: "
+                . ($e instanceof ProviderException ? $e->userMessage : $e->getMessage()) . ' It may still work; remove it in the DYLARIS dashboard.';
+            $notice = "The gateway address is now {$next->domain()}.";
+        }
+        $this->store->put($next);
+
+        if ($next->bedrock) {
+            $notice .= ' Download the Floodgate key again and replace plugins/floodgate/key.pem: the new address has its own key.';
+        }
+        return new ApplyResult(false, $notice);
     }
 
     public function setRealIp(int $serverId, bool $on): void
@@ -187,9 +297,9 @@ final class ModeService
     }
 
     /** The first address is chosen and checked once; later switches reuse it unchanged. */
-    private function ensureAddress(ServerState $s, ?string $label, PanelServer $server): void
+    private function ensureAddress(ServerState $s, ?string $label, ?string $domain, PanelServer $server, bool $actorIsAdmin): void
     {
-        if ($s->label !== '' && $s->hosterDomain !== '') {
+        if ($s->hasAddress()) {
             // While the server was direct, someone else may have taken the remembered address;
             // re-posting it would retarget their route to this server.
             foreach ($this->provider->listRoutes() as $route) {
@@ -199,31 +309,64 @@ final class ModeService
             }
             return;
         }
-        $hoster = $this->hosterDomain();
-        $s->hosterDomain = $hoster->domain;
-        if ($label === null) {
-            $s->label = $this->freeLabel($server, $hoster)
+        $entry = $domain === null || $domain === ''
+            ? ($this->domainChoices($server->nodeId, $actorIsAdmin)[0] ?? throw new ModeRefused('The gateway has no address domain to offer yet.'))
+            : $this->choice($server->nodeId, $domain, $actorIsAdmin);
+        $s->hosterDomain = $entry->domain;
+        $s->label = '';
+        if (!$entry->custom && ($label ?? '') === '') {
+            $s->label = $this->freeLabel($server, $entry)
                 ?? throw new ModeRefused('No free address name was found. Enter one yourself.');
             return;
         }
-        $s->label = $label;
+        if (!$entry->custom) {
+            $s->label = (string) $label;
+        }
+        $this->checkNewAddress($s, $entry);
+    }
+
+    /** One of the domains the actor may pick, by name. */
+    private function choice(int $nodeId, string $domain, bool $actorIsAdmin): AllowedDomain
+    {
+        foreach ($this->domainChoices($nodeId, $actorIsAdmin) as $d) {
+            if ($d->domain === strtolower(trim($domain))) {
+                return $d;
+            }
+        }
+        throw new ModeRefused('That domain is not offered for this server.');
+    }
+
+    /**
+     * A new address must be free: check-domain answers for the provider, and the servers of this panel behind the gateway are asked here,
+     * because check-domain calls a name this account already holds available.
+     */
+    private function checkNewAddress(ServerState $s, AllowedDomain $entry): void
+    {
+        if ($this->heldByOtherServer($s->domain(), $s->serverId)) {
+            throw new ModeRefused('That address is already used by another server.');
+        }
         $check = $this->provider->checkDomain($s->domain());
         if (!$check->available) {
-            throw new ModeRefused(AddressLabel::refusal($check->reason, $hoster->validation));
+            throw new ModeRefused(AddressLabel::refusal($check->reason, $entry->validation));
         }
     }
 
-    private function hosterDomain(): HosterDomain
+    private function heldByOtherServer(string $domain, int $serverId): bool
     {
-        return $this->provider->regions()->hosterDomains[0]
-            ?? throw new ModeRefused('The gateway has no address domain to offer yet.');
+        foreach ($this->store->all() as $other) {
+            if ($other->serverId !== $serverId && $other->mode !== Mode::Direct && $other->domain() === $domain) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    /** The first candidate label the provider accepts, or null. */
-    private function freeLabel(PanelServer $server, HosterDomain $hoster): ?string
+    /** The first candidate label the provider accepts and no other server of this panel holds, or null. */
+    private function freeLabel(PanelServer $server, AllowedDomain $hoster): ?string
     {
         foreach (AddressLabel::candidates($server->name, $hoster->validation) as $label) {
-            if ($this->provider->checkDomain("{$label}.{$hoster->domain}")->available) {
+            $domain = "{$label}.{$hoster->domain}";
+            if (!$this->heldByOtherServer($domain, $server->id) && $this->provider->checkDomain($domain)->available) {
                 return $label;
             }
         }

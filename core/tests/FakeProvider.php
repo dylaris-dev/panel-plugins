@@ -54,7 +54,7 @@ final class FakeProvider
     private function answer(string $method, string $path, mixed $body): array
     {
         if ($method === 'POST' && $path === 'routes') {
-            $domain = $body['subdomain'] . '.' . $body['hosterDomain'];
+            $domain = $body['customDomain'] ?? $body['subdomain'] . '.' . $body['hosterDomain'];
             $this->routes[$domain] = [
                 'domain' => $domain,
                 'link_id' => $body['linkId'],

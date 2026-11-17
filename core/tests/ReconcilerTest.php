@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Dylaris\GatewayPanel\Tests;
 
 use Dylaris\GatewayPanel\Allocation;
+use Dylaris\GatewayPanel\AllowedDomain;
 use Dylaris\GatewayPanel\Mode;
 use Dylaris\GatewayPanel\ModeService;
 use Dylaris\GatewayPanel\NodeState;
@@ -520,5 +521,38 @@ final class ReconcilerTest extends TestCase
 
         $this->assertSame([7 => ModeService::portTooLow(1000)], $r->errors);
         $this->assertNotContains('findOrCreateLoopback', $this->panelWrites());
+    }
+
+    public function testAServerWhoseEggLeftTheListKeepsItsRouteButGetsNoNewOne(): void
+    {
+        $this->start(Mode::GatewayOnly);
+        $domain = $this->domain();
+        $this->panel->setGatewayAllowed(7, false);
+
+        $this->reconciler->run();
+        $this->assertSame(self::LISTS, $this->provider->calls, 'a working route is left alone');
+        $this->assertArrayHasKey($domain, $this->provider->routes);
+
+        unset($this->provider->routes[$domain]);
+        $this->clearCalls();
+        $r = $this->reconciler->run();
+
+        $this->assertSame(self::LISTS, $this->provider->calls, 'the missing route is not created again');
+        $this->assertSame(Reconciler::NOT_RECREATED, $r->errors[7]);
+        $this->assertSame(Reconciler::NOT_RECREATED, $this->store->get(7)->lastError);
+    }
+
+    public function testARouteOnAnOwnDomainIsRecreatedAsAnOwnDomain(): void
+    {
+        $this->store->putNode(new NodeState(1, 'link-1', 'e2e', self::ALL, '172.18.0.1', [new AllowedDomain('play.example.com', true)]));
+        $this->modes->apply(7, Mode::Both, null, false, 'play.example.com');
+        unset($this->provider->routes['play.example.com']);
+        $this->clearCalls();
+
+        $this->reconciler->run();
+
+        $this->assertSame([...self::LISTS, 'POST routes'], $this->provider->calls);
+        $this->assertSame('play.example.com', $this->provider->bodies[2]['customDomain']);
+        $this->assertArrayNotHasKey('subdomain', $this->provider->bodies[2]);
     }
 }

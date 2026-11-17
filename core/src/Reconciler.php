@@ -17,6 +17,7 @@ final class Reconciler
 {
     private const LOOPBACK = '127.0.0.1';
     public const NOT_CONNECTED = "This node is not connected to the gateway. Connect it on the node's Gateway tab, or move the server to a connected node.";
+    public const NOT_RECREATED = 'The gateway supports Minecraft servers only, so the missing route of this server is not created again. An admin can switch it to Direct.';
     private const DEFAULT_RETRY_AFTER = 60;
 
     private readonly \Closure $clock;
@@ -79,7 +80,7 @@ final class Reconciler
             $ours = [];
             $this->seen = [];
             foreach ($states as $s) {
-                if ($s->mode !== Mode::Direct && $s->label !== '') {
+                if ($s->mode !== Mode::Direct && $s->hasAddress()) {
                     $holders[$s->domain()] = $s->serverId;
                 }
                 $ours[(string) $this->store->node($s->nodeId)?->linkId] = true;
@@ -125,7 +126,7 @@ final class Reconciler
     private function reconcile(ServerState $s, array $routes, array $holders, array $ours, array $kits, ReconcileReport $report): void
     {
         $server = $this->panel->server($s->serverId);
-        $route = $s->label !== '' ? ($routes[$s->domain()] ?? null) : null;
+        $route = $s->hasAddress() ? ($routes[$s->domain()] ?? null) : null;
         if ($route !== null && ($holders[$route->domain] ?? $s->serverId) !== $s->serverId) {
             $route = null; // another server's route: never deleted or retargeted from here
         }
@@ -229,6 +230,13 @@ final class Reconciler
             return false;
         }
 
+        // A server whose egg left the list keeps the route it has, but never gets a new one.
+        if ($route === null && !$server->gatewayAllowed) {
+            $s->lastError = self::NOT_RECREATED;
+            $this->persist($s);
+            $report->errors[$s->serverId] = self::NOT_RECREATED;
+            return false;
+        }
         if ($own === null && $port <= ModeService::PORT_FLOOR) {
             throw new ModeRefused(ModeService::portTooLow($port));
         }

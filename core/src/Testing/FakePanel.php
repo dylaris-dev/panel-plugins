@@ -46,6 +46,12 @@ final class FakePanel implements PanelAdapter
         $this->setOwner($primary->id, $id);
     }
 
+    /** Test seed: whether the server's egg may use the gateway. */
+    public function setGatewayAllowed(int $id, bool $allowed): void
+    {
+        $this->servers[$id]['allowed'] = $allowed;
+    }
+
     /** Test seed: the panel deletes the server; like a real panel, its allocations stay, unassigned. */
     public function removeServer(int $id): void
     {
@@ -73,7 +79,7 @@ final class FakePanel implements PanelAdapter
             return null;
         }
         $owned = array_values(array_filter($this->allocations, fn (Allocation $a) => $a->serverId === $id));
-        return new PanelServer($id, $s['shortId'], $s['nodeId'], $this->allocations[$s['primary']], $owned, $s['name']);
+        return new PanelServer($id, $s['shortId'], $s['nodeId'], $this->allocations[$s['primary']], $owned, $s['name'], $s['allowed'] ?? true);
     }
 
     public function allServerIds(): array

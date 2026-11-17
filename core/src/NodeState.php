@@ -17,6 +17,8 @@ final readonly class NodeState
         public ?string $region,
         public array $allowedModes,
         public string $targetHost = '172.18.0.1',
+        /** @var AllowedDomain[]|null the domains this node offers; null = never saved, all of the provider's hoster domains */
+        public ?array $domains = null,
     ) {
     }
 }

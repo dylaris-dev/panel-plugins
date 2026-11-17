@@ -136,3 +136,20 @@ final readonly class DomainCheck
     {
     }
 }
+
+final readonly class CustomDomain
+{
+    public function __construct(public string $domain, public string $state)
+    {
+    }
+
+    public static function fromArray(array $a): self
+    {
+        return new self(strtolower((string) ($a['domain'] ?? '')), (string) ($a['state'] ?? ''));
+    }
+
+    public function verified(): bool
+    {
+        return $this->state === 'verified';
+    }
+}

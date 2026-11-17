@@ -215,4 +215,25 @@ final class ProviderClientTest extends TestCase
         $this->assertNull($a->maxLinks);
         $this->assertNull($a->maxRoutes);
     }
+
+    public function testCreateRouteOnAnOwnDomainSendsCustomDomain(): void
+    {
+        $this->client($this->ok())->createRoute('link-1', '', 'play.example.com', '172.18.0.1', 25570);
+
+        $this->assertSame(
+            '{"linkId":"link-1","customDomain":"play.example.com","targetHost":"172.18.0.1","targetPort":25570}',
+            (string) $this->history[0]['request']->getBody(),
+        );
+    }
+
+    /** Shape as documented for GET /custom-domains (Core renames its "domains" list to items). */
+    public function testCustomDomainsParsesTheStates(): void
+    {
+        $body = '{"success":true,"items":[{"domain":"Play.Example.com","state":"verified","attempts":0},{"domain":"new.example.com","state":"pending","txtName":"_dylaris-verify.new.example.com","txtValue":"t"}]}';
+        $domains = $this->client(new Response(200, [], $body))->customDomains();
+
+        $this->assertSame('/api/external/gateway/custom-domains', $this->history[0]['request']->getUri()->getPath());
+        $this->assertSame(['play.example.com', 'new.example.com'], array_map(fn ($d) => $d->domain, $domains));
+        $this->assertSame([true, false], array_map(fn ($d) => $d->verified(), $domains));
+    }
 }
