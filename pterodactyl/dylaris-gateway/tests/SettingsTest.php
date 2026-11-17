@@ -18,6 +18,7 @@ use GuzzleHttp\Psr7\Response;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
+use Pterodactyl\Models\Egg;
 use Pterodactyl\Models\User;
 use Pterodactyl\Services\Extensions\ExtensionSettingDefinition;
 use Pterodactyl\Services\Extensions\ExtensionSettingValueGuard;
@@ -48,56 +49,42 @@ class SettingsTest extends ExtensionTestCase
 
     public function test_the_api_key_is_stored_encrypted(): void
     {
-        $this->save(['provider_url' => 'https://provider.example/', 'api_key' => self::KEY])->assertOk();
+        $this->save(['api_key' => self::KEY])->assertOk();
 
         $row = $this->storedKey();
         $this->assertTrue((bool) $row->is_secret);
         $this->assertStringNotContainsString(self::KEY, $row->value);
         $this->assertSame(self::KEY, ExtensionSettingValueGuard::decode($row->value, true));
         $this->assertSame(self::KEY, GatewaySettings::apiKey());
-        $this->assertSame('https://provider.example', GatewaySettings::providerUrl());
     }
 
     public function test_the_admin_form_never_gets_the_key(): void
     {
-        $this->save(['provider_url' => 'https://provider.example', 'api_key' => self::KEY])
+        $this->save(['api_key' => self::KEY])
             ->assertOk()
             ->assertDontSee(self::KEY);
 
         $this->getJson(self::SETTINGS)
             ->assertOk()
             ->assertDontSee(self::KEY)
-            ->assertJsonPath('data.schema.1.input', 'api_key')
-            ->assertJsonPath('data.schema.1.field', 'password')
-            ->assertJsonPath('data.schema.1.value', ExtensionSettingDefinition::MASK)
-            ->assertJsonPath('data.schema.0.value', 'https://provider.example');
+            ->assertJsonPath('data.schema.0.input', 'api_key')
+            ->assertJsonPath('data.schema.0.field', 'password')
+            ->assertJsonPath('data.schema.0.value', ExtensionSettingDefinition::MASK);
     }
 
     public function test_a_blank_or_masked_key_keeps_the_saved_one(): void
     {
-        $this->save(['provider_url' => 'https://provider.example', 'api_key' => self::KEY])->assertOk();
-        $this->save(['provider_url' => 'https://provider.example', 'api_key' => ''])->assertOk();
-        $this->save(['provider_url' => 'https://provider.example', 'api_key' => ExtensionSettingDefinition::MASK])->assertOk();
-        $this->save(['provider_url' => 'https://provider.example'])->assertOk();
+        $this->save(['api_key' => self::KEY])->assertOk();
+        $this->save(['api_key' => ''])->assertOk();
+        $this->save(['api_key' => ExtensionSettingDefinition::MASK])->assertOk();
+        $this->save([])->assertOk();
 
         $this->assertSame(self::KEY, GatewaySettings::apiKey());
-        $this->assertSame('https://provider.example', GatewaySettings::providerUrl());
-    }
-
-    public function test_a_non_http_url_is_refused(): void
-    {
-        foreach (['ftp://provider.example', 'javascript://provider.example', 'file:///etc/passwd', 'not a url'] as $url) {
-            $this->save(['provider_url' => $url, 'api_key' => self::KEY])
-                ->assertUnprocessable()
-                ->assertSee('The provider URL must be an http or https URL.');
-        }
-        $this->assertSame(0, DB::table('extension_settings')->where('extension', self::ID)->count());
-        $this->assertSame(GatewaySettings::DEFAULT_URL, GatewaySettings::providerUrl());
     }
 
     public function test_services_resolve_from_saved_settings(): void
     {
-        $this->save(['provider_url' => 'https://provider.example', 'api_key' => self::KEY])->assertOk();
+        $this->save(['api_key' => self::KEY])->assertOk();
 
         $this->assertInstanceOf(ProviderClient::class, $this->app->make(ProviderClient::class));
         $this->assertInstanceOf(ModeService::class, $this->app->make(ModeService::class));
@@ -108,7 +95,7 @@ class SettingsTest extends ExtensionTestCase
     public function test_without_settings_the_client_says_what_to_do(): void
     {
         $this->expectException(GatewayUnavailable::class);
-        $this->expectExceptionMessage('enter the provider URL and API key');
+        $this->expectExceptionMessage('enter the API key in the extension settings');
         $this->app->make(ProviderClient::class);
     }
 
@@ -144,57 +131,21 @@ class SettingsTest extends ExtensionTestCase
         $this->assertSame('https://provider.example/api/external/gateway/account', (string) $history[0]['request']->getUri());
     }
 
-    public function test_test_connection_needs_a_key_and_warns_on_http(): void
-    {
-        $this->actingAs(User::factory()->create(['root_admin' => true]));
-
-        $this->postJson(self::TEST_CONNECTION, [])
-            ->assertOk()
-            ->assertExactJson(['data' => ['ok' => false, 'message' => 'Enter a provider URL and an API key first.', 'warning' => null]]);
-        $this->postJson(self::TEST_CONNECTION, ['provider_url' => 'http://provider.example'])
-            ->assertOk()
-            ->assertExactJson(['data' => [
-                'ok' => false,
-                'message' => 'Enter the API key to test a different provider URL: the saved key is only sent to the saved URL.',
-                'warning' => 'This URL is not https: the API key would travel unencrypted.',
-            ]]);
-        $this->postJson(self::TEST_CONNECTION, ['provider_url' => 'ftp://provider.example', 'api_key' => self::KEY])
-            ->assertOk()
-            ->assertJsonPath('data.ok', false)
-            ->assertJsonPath('data.message', 'Enter a provider URL and an API key first.')
-            ->assertJsonPath('data.warning', null);
-    }
-
-    public function test_test_connection_sends_the_saved_key_only_to_the_saved_url(): void
-    {
-        $this->save(['provider_url' => 'https://provider.example', 'api_key' => self::KEY])->assertOk();
-
-        foreach (['https://attacker.example', 'https://provider.example.attacker.example', 'http://provider.example'] as $url) {
-            $this->postJson(self::TEST_CONNECTION, ['provider_url' => $url])
-                ->assertOk()
-                ->assertJsonPath('data.ok', false)
-                ->assertJsonPath('data.message', TestConnectionController::KEY_FOR_OTHER_URL);
-            $this->postJson(self::TEST_CONNECTION, ['provider_url' => $url, 'api_key' => ExtensionSettingDefinition::MASK])
-                ->assertJsonPath('data.message', TestConnectionController::KEY_FOR_OTHER_URL);
-        }
-    }
-
     public function test_test_connection_is_for_root_admins_only(): void
     {
         $this->actingAs(User::factory()->create(['root_admin' => false]))
-            ->postJson(self::TEST_CONNECTION, ['provider_url' => 'https://provider.example', 'api_key' => self::KEY])
+            ->postJson(self::TEST_CONNECTION, ['api_key' => self::KEY])
             ->assertForbidden();
     }
 
     public function test_a_key_the_app_key_cannot_decrypt_is_reported_not_crashed_on(): void
     {
-        $this->save(['provider_url' => 'https://provider.example', 'api_key' => self::KEY])->assertOk();
+        $this->save(['api_key' => self::KEY])->assertOk();
         // What a changed APP_KEY looks like from here: a payload that no longer decrypts.
         DB::table('extension_settings')->where('extension', self::ID)->where('key', 'api_key')
             ->update(['value' => json_encode(Crypt::encryptString('x') . 'tampered')]);
 
         $this->assertSame('The stored API key can no longer be read. Enter it again.', GatewaySettings::KEY_UNREADABLE);
-        $this->assertSame('https://provider.example', GatewaySettings::providerUrl(), 'the URL stays readable');
         try {
             $this->app->make(ProviderClient::class);
             $this->fail('the client resolved without a readable key');
@@ -208,20 +159,66 @@ class SettingsTest extends ExtensionTestCase
         $this->assertSame(self::KEY, GatewaySettings::apiKey());
     }
 
-    /** An admin who changes the URL must type the key; the saved key never follows a new URL. */
-    public function test_a_new_url_needs_the_key_typed_again(): void
+    protected function tearDown(): void
     {
-        $this->save(['provider_url' => 'https://provider.example', 'api_key' => self::KEY])->assertOk();
+        unset($_SERVER[GatewaySettings::URL_ENV], $_ENV[GatewaySettings::URL_ENV]);
+        parent::tearDown();
+    }
 
-        foreach (['', ExtensionSettingDefinition::MASK, null] as $blank) {
-            $settings = ['provider_url' => 'https://attacker.example'] + ($blank === null ? [] : ['api_key' => $blank]);
-            $this->save($settings)->assertUnprocessable()->assertSee(GatewaySettings::URL_NEEDS_KEY);
+    /** 0.2.0: the provider is fixed. The settings have no URL, so no key can be pointed anywhere else. */
+    public function test_the_provider_url_is_fixed_and_only_an_env_var_overrides_it(): void
+    {
+        $this->save(['api_key' => self::KEY])->assertOk();
+        $inputs = array_column($this->getJson(self::SETTINGS)->assertOk()->json('data.schema'), 'input');
+        $this->assertNotContains('provider_url', $inputs);
+        $this->assertSame('https://panel.dylaris.com', GatewaySettings::providerUrl());
+
+        // A URL saved by 0.1.0 is not read any more.
+        DB::table('extension_settings')->insert(['extension' => self::ID, 'scope' => 'global', 'key' => 'provider_url', 'value' => json_encode('https://attacker.example'), 'is_secret' => false]);
+        $this->assertSame('https://panel.dylaris.com', GatewaySettings::providerUrl());
+        $url = (fn () => $this->baseUrl)->call($this->app->make(ProviderClient::class));
+        $this->assertSame('https://panel.dylaris.com', $url);
+
+        $_SERVER[GatewaySettings::URL_ENV] = $_ENV[GatewaySettings::URL_ENV] = 'https://staging.example/ ';
+        $this->assertSame('https://staging.example', GatewaySettings::providerUrl());
+    }
+
+    public function test_test_connection_needs_a_key_and_names_the_provider(): void
+    {
+        $this->actingAs(User::factory()->create(['root_admin' => true]));
+
+        $this->postJson(self::TEST_CONNECTION, [])
+            ->assertOk()
+            ->assertExactJson(['data' => ['ok' => false, 'message' => 'Enter an API key first.', 'provider_url' => 'https://panel.dylaris.com']]);
+    }
+
+    public function test_the_egg_list_is_a_setting_and_defaults_to_the_java_minecraft_eggs(): void
+    {
+        $this->save(['api_key' => self::KEY])->assertOk();
+        $schema = array_column($this->getJson(self::SETTINGS)->assertOk()->json('data.schema'), null, 'input');
+
+        $this->assertSame('multiselect', $schema['eggs']['field']);
+        $this->assertEqualsCanonicalizing(GatewaySettings::detectedEggIds(), $schema['eggs']['value']);
+        $paper = Egg::query()->where('name', 'Paper')->first();
+        $rust = Egg::query()->where('name', 'Rust')->first();
+        $this->assertNotNull($paper);
+        $this->assertTrue(GatewaySettings::eggAllowed($paper));
+        if ($rust !== null) {
+            $this->assertFalse(GatewaySettings::eggAllowed($rust));
         }
-        $this->assertSame('https://provider.example', GatewaySettings::providerUrl());
-        $this->assertSame('Enter the API key again when you change the provider URL.', GatewaySettings::URL_NEEDS_KEY);
+    }
 
-        $this->save(['provider_url' => 'https://provider.example/', 'api_key' => ''])->assertOk();
-        $this->save(['provider_url' => 'https://other.example', 'api_key' => 'new-key'])->assertOk();
-        $this->assertSame(['https://other.example', 'new-key'], [GatewaySettings::providerUrl(), GatewaySettings::apiKey()]);
+    public function test_the_admin_egg_list_decides_once_saved(): void
+    {
+        $paper = Egg::query()->where('name', 'Paper')->firstOrFail();
+        $other = Egg::query()->whereNotIn('id', GatewaySettings::detectedEggIds())->firstOrFail();
+
+        $this->save(['eggs' => [$other->id]])->assertOk();
+        $this->assertTrue(GatewaySettings::eggAllowed($other));
+        $this->assertFalse(GatewaySettings::eggAllowed($paper));
+
+        $this->save(['eggs' => GatewaySettings::detectedEggIds()])->assertOk();
+        $this->assertTrue(GatewaySettings::eggAllowed($paper));
+        $this->assertFalse(GatewaySettings::eggAllowed($other));
     }
 }

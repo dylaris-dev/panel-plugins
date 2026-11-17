@@ -1,8 +1,15 @@
 <x-filament-widgets::widget>
     <x-filament::section heading="Gateway">
         <div class="flex flex-col gap-4">
+            @if ($notAllowed)
+                <x-filament::callout color="warning" :heading="$notAllowed" />
+            @endif
+
             @if ($state?->restartNeeded)
-                <x-filament::callout color="warning" heading="Restart the server to apply the change." />
+                <x-filament::callout color="warning" heading="Restart the server to apply the change." description="The plugin never restarts a server by itself." />
+                @if ($this->restartAction->isVisible())
+                    <div>{{ $this->restartAction }}</div>
+                @endif
             @endif
 
             @if ($state?->lastError)
@@ -19,9 +26,16 @@
 
             {{ $this->form }}
 
-            <div>{{ $this->applyAction }}</div>
+            <div class="flex flex-wrap gap-3">
+                {{-- Rendering an action does not check visible(); without these checks every action always shows. --}}
+                @foreach ([$this->applyAction, $this->changeAddressAction] as $action)
+                    @if ($action->isVisible())
+                        {{ $action }}
+                    @endif
+                @endforeach
+            </div>
 
-            @if ($state?->bedrock)
+            @if ($state?->bedrock && $this->floodgateKeyAction->isVisible())
                 <div class="flex flex-col gap-2 text-sm">
                     <p class="font-medium">Set up Floodgate for Bedrock players</p>
                     <ol class="list-decimal ps-5">

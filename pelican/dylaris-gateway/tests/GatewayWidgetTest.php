@@ -12,15 +12,20 @@ use App\Models\Server;
 use App\Models\Subuser;
 use App\Models\User;
 use App\Repositories\Daemon\DaemonServerRepository;
+use Dylaris\GatewayPanel\AllowedDomain;
 use Dylaris\GatewayPanel\Mode;
 use Dylaris\GatewayPanel\ModeService;
 use Dylaris\GatewayPanel\NodeState;
 use Dylaris\GatewayPanel\ServerState;
 use Dylaris\GatewayPanel\StateStore;
+use Dylaris\GatewayPelican\DylarisGatewayPlugin;
 use Dylaris\GatewayPelican\EloquentStateStore;
+use Dylaris\GatewayPelican\Filament\Server\Pages\GatewayPage;
+use Dylaris\GatewayPelican\GatewaySettings;
 use Dylaris\GatewayPelican\Filament\Server\Widgets\GatewayWidget;
 use Dylaris\GatewayPelican\Permissions;
 use Filament\Facades\Filament;
+use Filament\Panel;
 use Livewire\Livewire;
 use Mockery\MockInterface;
 
@@ -35,6 +40,9 @@ class GatewayWidgetTest extends PluginTestCase
     /** Wings' answer to getDetails: state and uptime in milliseconds. */
     private array $details = ['state' => 'offline', 'utilization' => ['uptime' => 0]];
 
+    /** @var list<string> power actions sent to Wings */
+    private array $power = [];
+
     /** Runs inside the Wings call, to model a change made while it is under way. */
     private ?\Closure $duringWings = null;
 
@@ -44,6 +52,11 @@ class GatewayWidgetTest extends PluginTestCase
         $this->mock(DaemonServerRepository::class, function (MockInterface $m) {
             $m->shouldReceive('setServer')->andReturnSelf();
             $m->shouldReceive('sync');
+            $m->shouldReceive('power')->andReturnUsing(function (string $action) {
+                $this->power[] = $action;
+
+                return new \Illuminate\Http\Client\Response(new \GuzzleHttp\Psr7\Response(204));
+            });
             $m->shouldReceive('getDetails')->andReturnUsing(function () {
                 if ($this->duringWings !== null) {
                     ($this->duringWings)();
@@ -91,43 +104,219 @@ class GatewayWidgetTest extends PluginTestCase
         return Livewire::test(GatewayWidget::class, ['server' => $this->server]);
     }
 
-    public function test_the_widget_is_on_the_console_page(): void
+    /** 0.2.0: a page of its own in the server navigation; the console widget is gone. */
+    public function test_the_gateway_page_is_registered_on_the_server_panel_only(): void
     {
-        $this->assertContains(GatewayWidget::class, (new Console())->getWidgets());
-        Livewire::test(Console::class)->assertOk()->assertSeeLivewire(GatewayWidget::class);
+        $server = Panel::make()->id('server');
+        (new DylarisGatewayPlugin())->register($server);
+        $this->assertContains(GatewayPage::class, $server->getPages());
+
+        $admin = Panel::make()->id('admin');
+        (new DylarisGatewayPlugin())->register($admin);
+        $this->assertNotContains(GatewayPage::class, $admin->getPages());
+
+        $this->assertNotContains(GatewayWidget::class, (new Console())->getWidgets());
+        $this->assertSame('Gateway', GatewayPage::getNavigationLabel());
     }
 
-    public function test_the_permission_is_registered_for_subusers(): void
+    public function test_the_three_permissions_are_registered_for_subusers_and_roles(): void
     {
-        $this->assertSame('gateway.manage', Permissions::MANAGE);
-        $this->assertTrue(Subuser::doesPermissionExist('gateway.manage'));
-        $this->assertSame('Manage the gateway', trans('dylaris-gateway::permissions.gateway_title'));
+        foreach (['gateway.view', 'gateway.mode', 'gateway.address'] as $p) {
+            $this->assertTrue(Subuser::doesPermissionExist($p), $p);
+        }
+        $this->assertFalse(Subuser::doesPermissionExist('gateway.manage'));
+        $this->assertSame(['view', 'mode', 'address'], array_values(Role::getPermissionList()['gateway']));
+        $this->assertSame('DYLARIS gateway', trans('dylaris-gateway::permissions.gateway_title'));
+        $this->assertStringContainsString('The old address stops working', trans('dylaris-gateway::permissions.gateway_address'));
     }
 
-    public function test_a_subuser_without_the_permission_does_not_get_the_widget(): void
+    private function subuser(string ...$permissions): User
     {
         $user = User::factory()->create();
-        Subuser::query()->create(['user_id' => $user->id, 'server_id' => $this->server->id, 'permissions' => ['control.console']]);
+        Subuser::query()->create(['user_id' => $user->id, 'server_id' => $this->server->id, 'permissions' => ['control.console', ...$permissions]]);
         $this->actingAs($user);
+        $this->server->unsetRelation('subusers'); // the panel caches the subuser list on the server model
 
-        $this->assertFalse(GatewayWidget::canView());
+        return $user;
+    }
+
+    public function test_a_subuser_without_a_gateway_permission_does_not_get_the_page(): void
+    {
+        $this->subuser();
+
+        $this->assertFalse(GatewayPage::canAccess());
         $this->widget()->assertForbidden();
     }
 
-    public function test_owner_admin_and_permitted_subuser_get_the_widget(): void
+    public function test_owner_admin_and_permitted_subusers_get_the_page(): void
     {
-        $this->assertTrue(GatewayWidget::canView(), 'owner');
+        $this->assertTrue(GatewayPage::canAccess(), 'owner');
         $this->widget()->assertOk()->assertSee('Gateway');
 
-        $sub = User::factory()->create();
-        Subuser::query()->create(['user_id' => $sub->id, 'server_id' => $this->server->id, 'permissions' => ['gateway.manage']]);
-        $this->actingAs($sub);
-        $this->assertTrue(GatewayWidget::canView(), 'subuser with gateway.manage');
+        foreach (['gateway.view', 'gateway.mode', 'gateway.address'] as $p) {
+            $this->subuser($p);
+            $this->assertTrue(GatewayPage::canAccess(), $p);
+        }
 
         $admin = User::factory()->create();
         $admin->syncRoles(Role::getRootAdmin());
         $this->actingAs($admin);
-        $this->assertTrue(GatewayWidget::canView(), 'admin');
+        $this->assertTrue(GatewayPage::canAccess(), 'admin');
+    }
+
+    public function test_view_only_sees_address_and_status_and_changes_nothing(): void
+    {
+        $this->nodeConnected();
+        $this->inMode(Mode::Both);
+        $this->subuser('gateway.view');
+
+        $this->widget()
+            ->assertOk()
+            ->assertSee('mc.play.example.net')
+            ->assertFormFieldIsHidden('mode')
+            ->assertFormFieldIsHidden('domain')
+            ->assertFormFieldIsHidden('label')
+            ->assertFormFieldIsHidden('bedrock')
+            ->assertActionHidden('apply')
+            ->assertActionHidden('changeAddress');
+    }
+
+    public function test_mode_only_switches_without_choosing_the_address(): void
+    {
+        $this->nodeConnected();
+        $this->server->update(['name' => 'Lobby']);
+        $this->subuser('gateway.mode');
+
+        $this->widget()
+            ->assertFormFieldIsHidden('domain')
+            ->assertFormFieldIsHidden('label')
+            ->assertActionHidden('changeAddress')
+            ->fillForm(['mode' => 'both', 'label' => 'sneaky'])
+            ->callAction('apply')
+            ->assertNotified('Restart the server to apply the change.');
+
+        $this->assertSame('lobby.play.example.net', $this->store()->get($this->server->id)->domain(), 'the plugin picked the address');
+    }
+
+    public function test_address_only_changes_the_address_but_not_the_mode(): void
+    {
+        $this->nodeConnected();
+        $this->inMode(Mode::Both);
+        $this->subuser('gateway.address');
+        $this->provider->on('DELETE routes/mc.play.example.net', 200, ['success' => true]);
+
+        $this->widget()
+            ->assertFormFieldIsHidden('mode')
+            ->assertActionHidden('apply')
+            ->assertFormSet(['domain' => 'play.example.net', 'label' => 'mc'])
+            ->fillForm(['label' => 'newname'])
+            ->callAction('changeAddress')
+            ->assertNotified('The gateway address is now newname.play.example.net. The old address mc.play.example.net no longer works: tell your players.');
+
+        $this->assertSame([Mode::Both, 'newname.play.example.net'], [$this->store()->get($this->server->id)->mode, $this->store()->get($this->server->id)->domain()]);
+        $this->assertSame(1, $this->providerCalls('DELETE routes/mc.play.example.net'));
+    }
+
+    public function test_changing_the_address_behind_the_gateway_asks_first_and_says_the_old_one_stops(): void
+    {
+        $this->nodeConnected();
+        $this->inMode(Mode::Both);
+
+        $this->widget()
+            ->assertActionHasLabel('changeAddress', 'Change address')
+            ->fillForm(['label' => 'other'])
+            ->mountAction('changeAddress')
+            ->assertActionMounted('changeAddress')
+            ->assertMountedActionModalSee('the old address mc.play.example.net stops working');
+    }
+
+    public function test_the_domain_dropdown_lists_the_node_domains_and_hides_admins_only_ones(): void
+    {
+        $this->store()->putNode(new NodeState($this->server->node_id, 'link-1', 'eu', Mode::cases(), '172.18.0.1', [
+            new AllowedDomain('play.example.net', false, false, 'alphanumeric'),
+            new AllowedDomain('vip.example.com', true, true),
+            new AllowedDomain('own.example.com', true),
+        ]));
+
+        $this->assertSame(['play.example.net' => 'play.example.net', 'own.example.com' => 'own.example.com (own domain, the whole address)'], $this->widget()->instance()->domainOptions());
+
+        $admin = User::factory()->create();
+        $admin->syncRoles(Role::getRootAdmin());
+        $this->actingAs($admin);
+        $this->assertArrayHasKey('vip.example.com', $this->widget()->instance()->domainOptions());
+    }
+
+    public function test_an_own_domain_takes_no_label(): void
+    {
+        $this->store()->putNode(new NodeState($this->server->node_id, 'link-1', 'eu', Mode::cases(), '172.18.0.1', [
+            new AllowedDomain('play.example.net', false, false, 'alphanumeric'),
+            new AllowedDomain('own.example.com', true),
+        ]));
+
+        $this->widget()
+            ->assertFormFieldIsVisible('label')
+            ->fillForm(['domain' => 'own.example.com'])
+            ->assertFormFieldIsHidden('label')
+            ->fillForm(['mode' => 'both'])
+            ->callAction('apply')
+            ->assertNotified('Restart the server to apply the change.');
+
+        $this->assertSame([['linkId' => 'link-1', 'customDomain' => 'own.example.com', 'targetHost' => '172.18.0.1', 'targetPort' => 25565]], $this->provider->bodies('POST routes'));
+    }
+
+    public function test_restart_now_is_offered_after_a_switch_and_restarts_through_wings(): void
+    {
+        $this->nodeConnected();
+        $this->widget()->assertActionHidden('restart');
+
+        $this->widget()
+            ->fillForm(['mode' => 'both'])
+            ->callAction('apply')
+            ->assertActionVisible('restart')
+            ->callAction('restart')
+            ->assertNotified('The server is restarting.');
+
+        $this->assertSame(['restart'], $this->power);
+    }
+
+    public function test_restart_now_needs_the_restart_permission(): void
+    {
+        $this->nodeConnected();
+        $s = $this->inMode(Mode::Both);
+        $s->restartNeeded = true;
+        $this->store()->put($s);
+
+        $this->subuser('gateway.mode');
+        $this->widget()->assertSee('Restart the server to apply the change.')->assertDontSee('Restart now');
+        $this->subuser('gateway.mode', 'control.restart');
+        $this->widget()->assertSee('Restart now');
+    }
+
+    public function test_a_server_of_another_egg_gets_no_gateway(): void
+    {
+        $this->nodeConnected();
+        GatewaySettings::current()->forceFill(['eggs' => []])->save();
+
+        $this->widget()
+            ->assertSee(ModeService::MINECRAFT_ONLY)
+            ->assertFormFieldIsHidden('mode')
+            ->assertFormFieldIsHidden('domain')
+            ->assertActionHidden('apply')
+            ->assertActionHidden('changeAddress');
+    }
+
+    public function test_a_server_already_behind_the_gateway_keeps_it_until_an_admin_switches_it(): void
+    {
+        $this->nodeConnected();
+        $this->inMode(Mode::Both);
+        GatewaySettings::current()->forceFill(['eggs' => []])->save();
+
+        $this->widget()->assertSee(ModeService::NO_LONGER_ALLOWED)->assertFormFieldIsHidden('mode')->assertSee('mc.play.example.net');
+
+        $admin = User::factory()->create();
+        $admin->syncRoles(Role::getRootAdmin());
+        $this->actingAs($admin);
+        $this->assertSame(['direct' => 'Direct', 'both' => 'Both'], $this->widget()->instance()->modeOptions());
     }
 
     public function test_owner_sees_only_the_node_modes_and_admin_sees_all(): void
@@ -189,12 +378,12 @@ class GatewayWidgetTest extends PluginTestCase
         $this->assertNull($this->store()->get($this->server->id));
     }
 
-    public function test_the_label_field_is_only_there_before_the_first_enable(): void
+    public function test_the_label_field_shows_the_remembered_address(): void
     {
         $this->nodeConnected();
         $this->inMode(Mode::Direct);
 
-        $this->widget()->assertFormFieldIsHidden('label');
+        $this->widget()->assertFormFieldIsVisible('label')->assertFormSet(['label' => 'mc', 'domain' => 'play.example.net'])->assertActionHasLabel('changeAddress', 'Save address');
     }
 
     public function test_real_ip_is_only_offered_in_gateway_only(): void
@@ -253,6 +442,8 @@ class GatewayWidgetTest extends PluginTestCase
 
         $this->widget()
             ->assertActionHasIcon('apply', TablerIcon::Check)
+            ->assertActionHasIcon('changeAddress', TablerIcon::Pencil)
+            ->assertActionHasIcon('restart', TablerIcon::Reload)
             ->assertActionHasIcon('floodgateKey', TablerIcon::Download);
     }
 
@@ -433,8 +624,9 @@ class GatewayWidgetTest extends PluginTestCase
     {
         $this->nodeConnected();
         $this->widget();
+        $first = $this->providerCalls('GET regions');
         $this->widget();
-        $this->assertSame(1, $this->providerCalls('GET regions'), 'label suggestion cached per server');
+        $this->assertSame($first, $this->providerCalls('GET regions'), 'label suggestion and domains cached');
 
         $this->inMode(Mode::Both);
         $this->widget();

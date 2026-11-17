@@ -10,43 +10,31 @@ use Illuminate\Http\Request;
 use Pterodactyl\Services\Extensions\ExtensionSettingDefinition;
 
 /**
- * POST /api/admin/extensions/dylaris-gateway/test-connection (root admins, admin API throttle). Checks the typed
- * provider URL and key with the same rule and sentences as the Pelican plugin. A blank URL means the saved one; a blank
- * key means the saved one, but only for the saved URL.
+ * POST /api/admin/extensions/dylaris-gateway/test-connection (root admins, admin API throttle). Checks the typed key, or
+ * the saved one when blank, against the fixed provider URL, with the same sentences as the Pelican plugin.
  */
 final class TestConnectionController
 {
     private const SCOPES = ['gateway.read', 'gateway.write'];
 
-    public const KEY_FOR_OTHER_URL = 'Enter the API key to test a different provider URL: the saved key is only sent to the saved URL.';
-
     public function __invoke(Request $request): JsonResponse
     {
-        $data = $request->validate([
-            'provider_url' => ['nullable', 'string', 'max:255'],
-            'api_key' => ['nullable', 'string', 'max:255'],
-        ]);
-        $url = rtrim(trim((string) ($data['provider_url'] ?? '')), '/') ?: GatewaySettings::providerUrl();
-        $warning = str_starts_with(strtolower($url), 'http://') ? GatewaySettings::HTTP_WARNING : null;
+        $data = $request->validate(['api_key' => ['nullable', 'string', 'max:255']]);
         $key = trim((string) ($data['api_key'] ?? ''));
         // The admin form shows a saved secret as its mask; sent back, it means "the saved key".
         if ($key === '' || $key === ExtensionSettingDefinition::MASK) {
-            // The saved key goes only to the saved URL, never to one typed into the form.
-            if ($url !== GatewaySettings::providerUrl()) {
-                return self::result(self::KEY_FOR_OTHER_URL, $warning);
-            }
             try {
                 $key = (string) GatewaySettings::apiKey();
             } catch (GatewayUnavailable $e) {
-                return self::result($e->getMessage(), $warning);
+                return self::result($e->getMessage());
             }
         }
-        if ($key === '' || !GatewaySettings::validUrl($url)) {
-            return self::result('Enter a provider URL and an API key first.', $warning);
+        if ($key === '') {
+            return self::result('Enter an API key first.');
         }
-        $problem = self::connectionProblem(new ProviderClient($url, $key));
+        $problem = self::connectionProblem(new ProviderClient(GatewaySettings::providerUrl(), $key));
 
-        return self::result($problem, $warning, $problem === null);
+        return self::result($problem, $problem === null);
     }
 
     /** What is wrong with this key for the managed gateway, as a sentence for the admin, or null. */
@@ -76,12 +64,12 @@ final class TestConnectionController
         };
     }
 
-    private static function result(?string $problem, ?string $warning, bool $ok = false): JsonResponse
+    private static function result(?string $problem, bool $ok = false): JsonResponse
     {
         return new JsonResponse(['data' => [
             'ok' => $ok,
             'message' => $problem ?? 'Connected: managed gateway plan with read and write access.',
-            'warning' => $warning,
+            'provider_url' => GatewaySettings::providerUrl(),
         ]]);
     }
 }

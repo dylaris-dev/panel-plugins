@@ -77,7 +77,7 @@ class ReconcileCommandTest extends PluginTestCase
 
     public function test_an_unreadable_key_is_logged(): void
     {
-        (new DylarisGatewayPlugin())->saveSettings(['provider_url' => FakeProvider::URL, 'api_key' => 'dgk_test_api_key']);
+        (new DylarisGatewayPlugin())->saveSettings(['api_key' => 'dgk_test_api_key']);
         // What a changed APP_KEY looks like from here.
         DB::table('dylaris_gateway_settings')->update(['api_key' => Crypt::encryptString('x') . 'tampered']);
         Log::spy();

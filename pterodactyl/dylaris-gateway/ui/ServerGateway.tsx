@@ -18,14 +18,25 @@ import {
 } from '@pterodactyl/sdk';
 import { call, http, httpErrorToHuman } from './api';
 
-/** Must match Permissions::MANAGE on the backend, which checks it again on every request. */
-const PERMISSION = 'ext.dylaris-gateway.manage';
+/** Must match Permissions on the backend, which checks each one again on every request. Mode and address include view. */
+const PERMISSIONS = ['ext.dylaris-gateway.view', 'ext.dylaris-gateway.mode', 'ext.dylaris-gateway.address'];
+
+interface DomainOption {
+    value: string;
+    label: string;
+    custom: boolean;
+}
 
 interface ServerState {
     mode: string;
     modes: { value: string; label: string }[];
     not_offered: string | null;
+    not_allowed: string | null;
+    can_mode: boolean;
+    can_address: boolean;
     first_enable: boolean;
+    domains: DomainOption[];
+    domain: string;
     label: string;
     address: string | null;
     real_ip: boolean;
@@ -36,6 +47,7 @@ interface ServerState {
 }
 
 const column = { display: 'flex', flexDirection: 'column', gap: '1rem' } as const;
+const row = { display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' } as const;
 
 /**
  * After a mode change the panel's allocation list is stale; its query key is the generated
@@ -50,28 +62,33 @@ const refreshAllocations = (uuid: string) =>
     });
 
 /**
- * The server's Gateway page, a screen of its own (extension.json): its nav entry and route need only
- * ext.dylaris-gateway.manage, where the Network page also needs allocation.read. Mirrors the Pelican widget.
+ * The server's Gateway page, a screen of its own (extension.json): its nav entry and route need any one of the three
+ * gateway permissions, where the Network page also needs allocation.read. Mirrors the Pelican Gateway page.
  */
 export default function ServerGateway() {
     const server = useCurrentServerRequired();
-    const allowed = useServerPermission(PERMISSION);
+    const allowed = useServerPermission(PERMISSIONS, true);
+    const canRestart = useServerPermission('control.restart');
     // The server comes from the page, and the backend takes it from the route only.
     const base = `/api/client/servers/${server.attributes.uuid}/extensions/dylaris-gateway`;
 
     const [state, setState] = useState<ServerState | null>(null);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [mode, setMode] = useState('direct');
+    const [domain, setDomain] = useState('');
     const [label, setLabel] = useState('');
     const [busy, setBusy] = useState(false);
     /** What the chosen switch changes beyond the mode; shown in a confirm step before it runs. */
     const [warnings, setWarnings] = useState<string[] | null>(null);
+    const [confirmAddress, setConfirmAddress] = useState(false);
+    const [confirmRestart, setConfirmRestart] = useState(false);
 
-    const apply = useCallback((s: ServerState) => {
+    const apply = useCallback((s: ServerState, keepTyped = true) => {
         setState(s);
         setMode(s.mode);
-        // Keep what the user typed after a refusal.
-        setLabel((typed) => typed || s.label);
+        // Keep what the user picked and typed after a refusal.
+        setDomain((picked) => (keepTyped && picked) || s.domain);
+        setLabel((typed) => (keepTyped && typed) || s.label);
     }, []);
 
     useEffect(() => {
@@ -95,17 +112,22 @@ export default function ServerGateway() {
     }
     if (!state) return null;
 
-    const post = async (path: string, body: object) => {
+    const post = async (path: string, body: object, keepTyped = true) => {
         setBusy(true);
         const result = await call<ServerState>(http.post(base + path, body));
         setBusy(false);
-        if (result) apply(result.data);
+        if (result) apply(result.data, keepTyped);
 
         return result !== null;
     };
 
+    const chosen = state.domains.find((d) => d.value === domain);
+    const gatewayMode = state.mode === 'both' || state.mode === 'gateway_only';
+    const modeSelectable = state.can_mode && state.modes.length > 1;
+
     const switchMode = async () => {
-        const result = await post('/mode', state.first_enable ? { mode, label: label.trim() } : { mode });
+        const body = state.first_enable && state.can_address ? { mode, domain, label: label.trim() } : { mode };
+        const result = await post('/mode', body);
         if (result) await refreshAllocations(server.attributes.uuid);
     };
 
@@ -119,6 +141,22 @@ export default function ServerGateway() {
         }
         if (found.length > 0) setWarnings(found);
         else await switchMode();
+    };
+
+    const changeAddress = () => post('/address', { domain, label: chosen?.custom ? null : label.trim() }, false);
+
+    const restart = async () => {
+        setBusy(true);
+        try {
+            // The panel's own power endpoint, which checks control.restart itself.
+            await http.post(`/api/client/servers/${server.attributes.uuid}/power`, { signal: 'restart' });
+            toast.success('The server is restarting.');
+        } catch (cause) {
+            toast.error(httpErrorToHuman(cause));
+        } finally {
+            setBusy(false);
+            setConfirmRestart(false);
+        }
     };
 
     const download = async () => {
@@ -144,111 +182,188 @@ export default function ServerGateway() {
         }
     };
 
-    const gatewayMode = state.mode === 'both' || state.mode === 'gateway_only';
+    const modeLabel = state.modes.find((m) => m.value === state.mode)?.label ?? state.mode;
 
     return (
         <ServerContentBlock title='Gateway'>
-        <TitledGreyBox title='Gateway'>
-            <div style={column}>
-                {state.restart_needed && <Alert type='warning'>Restart the server to apply the change.</Alert>}
-                {state.not_offered && <Alert type='info'>{state.not_offered}</Alert>}
-                {state.last_error && (
-                    <Alert type='danger' title='Last gateway error'>
-                        {state.last_error}
-                    </Alert>
-                )}
-                {state.status && <p>{state.status}</p>}
+            <TitledGreyBox title='Gateway'>
+                <div style={column}>
+                    {state.not_allowed && <Alert type='warning'>{state.not_allowed}</Alert>}
+                    {state.restart_needed && (
+                        <Alert type='warning' title='Restart the server to apply the change.'>
+                            <div style={column}>
+                                <span>The extension never restarts a server by itself.</span>
+                                {canRestart && (
+                                    <div>
+                                        <Button isLoading={busy} onClick={() => setConfirmRestart(true)}>
+                                            Restart now
+                                        </Button>
+                                    </div>
+                                )}
+                            </div>
+                        </Alert>
+                    )}
+                    {state.not_offered && <Alert type='info'>{state.not_offered}</Alert>}
+                    {state.last_error && (
+                        <Alert type='danger' title='Last gateway error'>
+                            {state.last_error}
+                        </Alert>
+                    )}
+                    {state.status && <p>{state.status}</p>}
 
-                <div>
-                    <Label htmlFor='dg-mode'>Mode</Label>
-                    <Select id='dg-mode' value={mode} options={state.modes} onChange={(value) => setMode(String(value))} />
-                    <p className='input-help'>
-                        Direct: players use the server's own address. Both: the own address and the gateway address.
-                        Gateway only: just the gateway address, the server's port is closed.
-                    </p>
-                </div>
-
-                {state.first_enable && (
-                    <div>
-                        <Label htmlFor='dg-label'>Address name</Label>
-                        <Input id='dg-label' value={label} maxLength={63} onChange={(event) => setLabel(event.target.value)} />
-                        <p className='input-help'>
-                            The first part of the gateway address. It is chosen once, before the gateway is first
-                            enabled.
-                        </p>
-                    </div>
-                )}
-
-                {state.address && (
-                    <div>
-                        <Label>Gateway address</Label>
+                    {modeSelectable ? (
                         <div>
-                            <CopyOnClick text={state.address} showInNotification>
-                                <Code>{state.address}</Code>
-                            </CopyOnClick>
+                            <Label htmlFor='dg-mode'>Mode</Label>
+                            <Select id='dg-mode' value={mode} options={state.modes} onChange={(value) => setMode(String(value))} />
+                            <p className='input-help'>
+                                Direct: players use the server's own address. Both: the own address and the gateway
+                                address. Gateway only: just the gateway address, the server's port is closed.
+                            </p>
                         </div>
-                    </div>
-                )}
-
-                <div>
-                    <Button isLoading={busy} onClick={applyMode}>
-                        Apply mode
-                    </Button>
-                </div>
-
-                {state.mode === 'gateway_only' && (
-                    <Switch
-                        checked={state.real_ip}
-                        disabled={busy}
-                        label='Real player IP'
-                        description="Passes each player's real IP with the PROXY protocol. Turn it on in the server as well, or nobody can join. Paper: proxies.proxy-protocol: true in config/paper-global.yml. Velocity: haproxy-protocol = true in velocity.toml."
-                        onChange={(on) => post('/real-ip', { enabled: on })}
-                    />
-                )}
-
-                {gatewayMode && (
-                    <Switch
-                        checked={state.bedrock}
-                        disabled={busy}
-                        label='Bedrock players'
-                        description='Lets Bedrock players join through the gateway. The server needs Floodgate with the key below.'
-                        onChange={(on) => post('/bedrock', { enabled: on })}
-                    />
-                )}
-
-                {state.bedrock && (
-                    <div style={column}>
+                    ) : (
                         <p>
-                            <strong>Set up Floodgate for Bedrock players</strong>
+                            Mode: <strong>{modeLabel}</strong>
                         </p>
-                        <ol style={{ paddingInlineStart: '1.25rem', listStyle: 'decimal' }}>
-                            <li>Install Floodgate on the server (on Velocity or BungeeCord, on the proxy).</li>
-                            <li>Start the server once so Floodgate creates its folder, then stop it.</li>
-                            <li>Download the key below and put it at plugins/floodgate/key.pem, replacing the generated one.</li>
-                            <li>Start the server again.</li>
-                        </ol>
+                    )}
+
+                    {state.address && (
                         <div>
-                            <Button isSecondary onClick={download}>
-                                Download Floodgate key
-                            </Button>
+                            <Label>Gateway address</Label>
+                            <div>
+                                <CopyOnClick text={state.address} showInNotification>
+                                    <Code>{state.address}</Code>
+                                </CopyOnClick>
+                            </div>
                         </div>
+                    )}
+
+                    {state.can_address && state.domains.length > 0 && (
+                        <div style={row}>
+                            <div style={{ minWidth: '16rem' }}>
+                                <Label htmlFor='dg-domain'>Domain</Label>
+                                <Select
+                                    id='dg-domain'
+                                    value={domain}
+                                    options={state.domains.map((d) => ({ value: d.value, label: d.label }))}
+                                    onChange={(value) => setDomain(String(value))}
+                                />
+                            </div>
+                            {!chosen?.custom && (
+                                <div style={{ minWidth: '12rem' }}>
+                                    <Label htmlFor='dg-label'>Address name</Label>
+                                    <Input
+                                        id='dg-label'
+                                        value={label}
+                                        maxLength={63}
+                                        onChange={(event) => setLabel(event.target.value)}
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    {state.can_address && state.domains.length > 0 && (
+                        <p className='input-help'>
+                            {chosen?.custom
+                                ? 'An own domain is the whole address.'
+                                : `The address will be ${label.trim() || '<name>'}.${domain}. `}
+                            {gatewayMode && ' Changing it moves the server to the new address; the old one stops working.'}
+                        </p>
+                    )}
+
+                    <div style={row}>
+                        {modeSelectable && (
+                            <Button isLoading={busy} onClick={applyMode}>
+                                Apply mode
+                            </Button>
+                        )}
+                        {state.can_address && state.domains.length > 0 && (
+                            <Button
+                                isSecondary
+                                disabled={busy}
+                                onClick={() => (gatewayMode ? setConfirmAddress(true) : changeAddress())}
+                            >
+                                {gatewayMode ? 'Change address' : 'Save address'}
+                            </Button>
+                        )}
                     </div>
-                )}
-            </div>
-        </TitledGreyBox>
-        <Dialog.Confirm
-            open={warnings !== null}
-            onClose={() => setWarnings(null)}
-            pending={busy}
-            title='Switch the mode?'
-            confirm='Apply mode'
-            onConfirmed={async () => {
-                setWarnings(null);
-                await switchMode();
-            }}
-        >
-            {(warnings ?? []).join(' ')}
-        </Dialog.Confirm>
+
+                    {state.can_mode && state.mode === 'gateway_only' && (
+                        <Switch
+                            checked={state.real_ip}
+                            disabled={busy}
+                            label='Real player IP'
+                            description="Passes each player's real IP with the PROXY protocol. Turn it on in the server as well, or nobody can join. Paper: proxies.proxy-protocol: true in config/paper-global.yml. Velocity: haproxy-protocol = true in velocity.toml."
+                            onChange={(on) => post('/real-ip', { enabled: on })}
+                        />
+                    )}
+
+                    {state.can_mode && gatewayMode && (
+                        <Switch
+                            checked={state.bedrock}
+                            disabled={busy}
+                            label='Bedrock players'
+                            description='Lets Bedrock players join through the gateway. The server needs Floodgate with the key below.'
+                            onChange={(on) => post('/bedrock', { enabled: on })}
+                        />
+                    )}
+
+                    {state.can_mode && state.bedrock && (
+                        <div style={column}>
+                            <p>
+                                <strong>Set up Floodgate for Bedrock players</strong>
+                            </p>
+                            <ol style={{ paddingInlineStart: '1.25rem', listStyle: 'decimal' }}>
+                                <li>Install Floodgate on the server (on Velocity or BungeeCord, on the proxy).</li>
+                                <li>Start the server once so Floodgate creates its folder, then stop it.</li>
+                                <li>Download the key below and put it at plugins/floodgate/key.pem, replacing the generated one.</li>
+                                <li>Start the server again.</li>
+                            </ol>
+                            <div>
+                                <Button isSecondary onClick={download}>
+                                    Download Floodgate key
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </TitledGreyBox>
+            <Dialog.Confirm
+                open={warnings !== null}
+                onClose={() => setWarnings(null)}
+                pending={busy}
+                title='Switch the mode?'
+                confirm='Apply mode'
+                onConfirmed={async () => {
+                    setWarnings(null);
+                    await switchMode();
+                }}
+            >
+                {(warnings ?? []).join(' ')}
+            </Dialog.Confirm>
+            <Dialog.Confirm
+                open={confirmAddress}
+                onClose={() => setConfirmAddress(false)}
+                pending={busy}
+                title='Change the gateway address?'
+                confirm='Change address'
+                onConfirmed={async () => {
+                    setConfirmAddress(false);
+                    await changeAddress();
+                }}
+            >
+                The new address works right away and the old address {state.address} stops working: players have to use
+                the new one. No restart is needed.
+            </Dialog.Confirm>
+            <Dialog.Confirm
+                open={confirmRestart}
+                onClose={() => setConfirmRestart(false)}
+                pending={busy}
+                title='Restart the server now?'
+                confirm='Restart now'
+                onConfirmed={restart}
+            >
+                Players on the server are disconnected while it restarts.
+            </Dialog.Confirm>
         </ServerContentBlock>
     );
 }

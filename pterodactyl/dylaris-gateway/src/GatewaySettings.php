@@ -2,87 +2,60 @@
 
 namespace Dylaris\GatewayPtero;
 
+use Dylaris\GatewayPanel\MinecraftEggs;
 use Illuminate\Contracts\Encryption\DecryptException;
-use Illuminate\Contracts\Validation\DataAwareRule;
-use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Support\Collection;
+use Pterodactyl\Models\Egg;
 use Pterodactyl\Services\Extensions\ExtensionRepository;
 use Pterodactyl\Services\Extensions\ExtensionSettingDefinition;
 use Pterodactyl\Services\Extensions\ExtensionSettings;
 use Pterodactyl\Services\Extensions\ExtensionSettingsDefinition;
 
-/** The provider URL and the API key, kept in the panel's extension settings; the key as a ->secret() (encrypted with APP_KEY). */
+/**
+ * The API key (a ->secret(), encrypted with APP_KEY) and the eggs that may use the gateway, kept in the panel's
+ * extension settings. The provider URL is not a setting: every call goes to providerUrl().
+ */
 final class GatewaySettings
 {
     public const ID = 'dylaris-gateway';
 
     public const DEFAULT_URL = 'https://panel.dylaris.com';
 
+    /** Overrides DEFAULT_URL, for DYLARIS' own tests against another provider. The key is sent to whichever URL is in effect. */
+    public const URL_ENV = 'DYLARIS_GATEWAY_PROVIDER_URL';
+
     public const KEY_UNREADABLE = 'The stored API key can no longer be read. Enter it again.';
 
-    public const BAD_URL = 'The provider URL must be an http or https URL.';
-
-    public const URL_NEEDS_KEY = 'Enter the API key again when you change the provider URL.';
-
-    public const HTTP_WARNING = 'This URL is not https: the API key would travel unencrypted.';
+    public const EGGS_HELP = 'The gateway carries Minecraft Java only (Bedrock players join through Geyser in front of a Java server). Servers of any other egg get no gateway. Until this is saved: the eggs with the minecraft tag or the eula or java_version feature, without Bedrock. Once saved, exactly the ticked eggs; tick an egg imported later here.';
 
     public static function definition(ExtensionSettings $settings): ExtensionSettingsDefinition
     {
-        return new ExtensionSettingsDefinition($settings, [
-            ExtensionSettingDefinition::make('provider_url', 'provider_url', self::DEFAULT_URL, [
-                'required', 'string', 'max:255',
-                function (string $attribute, mixed $value, \Closure $fail) {
-                    if (!self::validUrl(trim((string) $value))) {
-                        $fail(self::BAD_URL);
-                    }
-                },
-                self::urlNeedsKeyRule(),
-            ])
-                ->label('Provider URL')
-                ->help('Use https: over http the API key would travel unencrypted.')
-                ->normalizeUsing(fn (mixed $v) => is_string($v) ? rtrim(trim($v), '/') : $v),
+        $fields = [
             ExtensionSettingDefinition::make('api_key', 'api_key', null, ['string', 'max:255'])
                 ->secret()
                 ->label('API key')
-                ->help('Use a key dedicated to this panel, never one a DYLARIS customer Core uses. Leave blank to keep the saved key; a new provider URL needs the key again.'),
-        ]);
+                ->help('Use a key dedicated to this panel, never one a DYLARIS customer Core uses. Leave blank to keep the saved key. Calls go only to ' . self::providerUrl() . '.'),
+        ];
+        // One query per boot; a fresh install migrates before the eggs table is filled, and a multiselect needs a choice.
+        $eggs = self::eggs();
+        $options = $eggs->map(fn (Egg $e) => ['value' => (int) $e->id, 'label' => (string) $e->name])->values()->all();
+        $detected = self::detectedEggIds($eggs);
+        if ($options !== []) {
+            $fields[] = ExtensionSettingDefinition::make('eggs', 'eggs', $detected, ['nullable', 'array'])
+                ->multiselect($options)
+                ->label('Eggs that may use the gateway')
+                ->help(self::EGGS_HELP);
+        }
+
+        return new ExtensionSettingsDefinition($settings, $fields);
     }
 
-    /**
-     * The saved key only ever goes to the saved URL, so whoever changes the URL must type the key. The panel drops a
-     * blank or masked secret before validating, so a missing api_key here means "keep the saved one".
-     */
-    private static function urlNeedsKeyRule(): ValidationRule
-    {
-        return new class implements DataAwareRule, ValidationRule {
-            private array $data = [];
-
-            public function setData(array $data): static
-            {
-                $this->data = $data;
-
-                return $this;
-            }
-
-            public function validate(string $attribute, mixed $value, \Closure $fail): void
-            {
-                try {
-                    $saved = GatewaySettings::apiKey() !== null;
-                } catch (GatewayUnavailable) {
-                    $saved = false; // unreadable: it cannot reach any URL
-                }
-                $typed = trim((string) ($this->data['api_key'] ?? ''));
-                if ($saved && $typed === '' && rtrim(trim((string) $value), '/') !== GatewaySettings::providerUrl()) {
-                    $fail(GatewaySettings::URL_NEEDS_KEY);
-                }
-            }
-        };
-    }
-
+    /** The provider every call goes to: fixed, not a setting, so a saved key cannot be sent anywhere else. */
     public static function providerUrl(): string
     {
-        $url = self::read('provider_url');
+        $url = env(self::URL_ENV);
 
-        return is_string($url) && $url !== '' ? rtrim($url, '/') : self::DEFAULT_URL;
+        return is_string($url) && trim($url) !== '' ? rtrim(trim($url), '/') : self::DEFAULT_URL;
     }
 
     /**
@@ -100,15 +73,48 @@ final class GatewaySettings
         return is_string($key) && $key !== '' ? $key : null;
     }
 
-    public static function validUrl(string $url): bool
+    /** May servers of this egg use the gateway: the admin's list once saved, the Java Minecraft eggs until then. */
+    public static function eggAllowed(?Egg $egg): bool
     {
-        return filter_var($url, FILTER_VALIDATE_URL) !== false
-            && in_array(strtolower((string) parse_url($url, PHP_URL_SCHEME)), ['http', 'https'], true);
+        if ($egg === null) {
+            return false;
+        }
+        $saved = self::read('eggs');
+
+        return is_array($saved) ? in_array((int) $egg->id, array_map('intval', $saved), true) : self::isMinecraft($egg);
+    }
+
+    public static function isMinecraft(Egg $egg): bool
+    {
+        return MinecraftEggs::isJavaMinecraft((string) $egg->name, $egg->tagSlugs(), array_values((array) ($egg->inherit_features ?? $egg->features ?? [])));
+    }
+
+    /**
+     * @param Collection<int, Egg>|null $eggs
+     *
+     * @return list<int> sorted
+     */
+    public static function detectedEggIds(?Collection $eggs = null): array
+    {
+        $ids = ($eggs ?? self::eggs())->filter(fn (Egg $e) => self::isMinecraft($e))->map(fn (Egg $e) => (int) $e->id)->values()->all();
+        sort($ids);
+
+        return $ids;
+    }
+
+    /** @return Collection<int, Egg> every egg, with what isMinecraft() reads, by name */
+    private static function eggs(): Collection
+    {
+        try {
+            return Egg::query()->with(['tags', 'configFrom'])->orderBy('name')->get()->toBase();
+        } catch (\Throwable) {
+            return collect();
+        }
     }
 
     /**
      * One setting, decoded on its own: ExtensionSettings::get() decodes every row at once, so an
-     * undecryptable key would make the URL unreadable too. getByPrefix() strips the prefix, so the
+     * undecryptable key would make the other settings unreadable too. getByPrefix() strips the prefix, so the
      * exact key comes back as ''. It also reads the table each time instead of a per-process cache.
      */
     private static function read(string $key): mixed

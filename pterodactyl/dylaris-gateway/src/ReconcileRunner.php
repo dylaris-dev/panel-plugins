@@ -57,6 +57,18 @@ final class ReconcileRunner
         return "dylaris-gateway-label-{$serverId}";
     }
 
+    public static function domainsKey(int $nodeId, bool $admin): string
+    {
+        return "dylaris-gateway-domains-{$nodeId}-" . ($admin ? 'admin' : 'user');
+    }
+
+    /** After the node's domain list changed. */
+    public static function forgetDomains(int $nodeId): void
+    {
+        Cache::forget(self::domainsKey($nodeId, true));
+        Cache::forget(self::domainsKey($nodeId, false));
+    }
+
     /**
      * @return ReconcileReport|string|false the run's report; a sentence when it could not run (not set up, failed);
      *                                       false when another run held the lock and this one was skipped

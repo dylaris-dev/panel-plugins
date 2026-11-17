@@ -28,7 +28,7 @@ class ExtensionServiceProvider extends ExtensionProvider
         $this->app->bind(ProviderClient::class, function () {
             $key = GatewaySettings::apiKey();
             if ($key === null) {
-                throw new GatewayUnavailable('The DYLARIS gateway is not set up yet: enter the provider URL and API key in the extension settings.');
+                throw new GatewayUnavailable('The DYLARIS gateway is not set up yet: enter the API key in the extension settings.');
             }
 
             return new ProviderClient(GatewaySettings::providerUrl(), $key);
@@ -44,8 +44,8 @@ class ExtensionServiceProvider extends ExtensionProvider
         ));
 
         $this->registerSettings(GatewaySettings::definition($this->settings()));
-        // Becomes ext.dylaris-gateway.manage (Permissions::MANAGE); owners and root admins hold it implicitly.
-        $this->registerPermissions('DYLARIS Gateway', ['manage' => 'Choose the gateway mode, Real player IP and Bedrock for this server.']);
+        // Become ext.dylaris-gateway.view, .mode and .address (Permissions); owners and root admins hold them implicitly.
+        $this->registerPermissions('DYLARIS Gateway', Permissions::keys());
         $this->registerCommands([ReconcileCommand::class]);
         // The command goes through ReconcileRunner, whose lock already keeps two runs apart.
         $this->registerSchedule(fn (Schedule $schedule) => $schedule->command('dylaris-gateway:reconcile')->everyFiveMinutes());

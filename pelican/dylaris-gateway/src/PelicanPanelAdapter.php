@@ -31,7 +31,7 @@ final class PelicanPanelAdapter implements PanelAdapter
     public function server(int $id): ?PanelServer
     {
         return self::untenanted(function () use ($id) {
-            $server = Server::query()->with('allocations')->find($id);
+            $server = Server::query()->with(['allocations', 'egg'])->find($id);
             if ($server === null) {
                 return null;
             }
@@ -40,7 +40,7 @@ final class PelicanPanelAdapter implements PanelAdapter
                 // Never null for a server that exists: the reconcile would read that as deleted and drop its route.
                 ?? throw new \RuntimeException('This server has no primary allocation.');
 
-            return new PanelServer($server->id, $server->uuid_short, $server->node_id, $primary, $allocations, (string) $server->name);
+            return new PanelServer($server->id, $server->uuid_short, $server->node_id, $primary, $allocations, (string) $server->name, GatewaySettings::eggAllowed($server->egg));
         });
     }
 

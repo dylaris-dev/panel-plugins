@@ -20,7 +20,7 @@ class ManifestTest extends ExtensionTestCase
         $screens = array_column($json['ui']['screens'], null, 'id');
 
         $this->assertSame('server', $screens['server-gateway']['area']);
-        $this->assertSame(['ext.dylaris-gateway.manage'], $screens['server-gateway']['permission']);
+        $this->assertSame(['ext.dylaris-gateway.view', 'ext.dylaris-gateway.mode', 'ext.dylaris-gateway.address'], $screens['server-gateway']['permission']);
         $this->assertSame(['server.allocations'], $json['ui']['views']);
         $this->assertNotNull($this->app->make(ExtensionRepository::class)->discovered()->get(self::ID), 'the panel accepts the manifest');
     }
@@ -29,6 +29,7 @@ class ManifestTest extends ExtensionTestCase
     public function test_the_description_names_where_calls_go(): void
     {
         $manifest = json_decode(file_get_contents(dirname(__DIR__) . '/extension.json'), true);
-        $this->assertStringContainsString('Calls go only to the provider URL the admin enters in the settings.', $manifest['description']);
+        $this->assertStringContainsString('Calls go only to the DYLARIS provider at https://panel.dylaris.com.', $manifest['description']);
+        $this->assertSame('0.2.0', $manifest['version']);
     }
 }

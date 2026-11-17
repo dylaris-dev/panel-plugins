@@ -2,6 +2,7 @@
 
 namespace Dylaris\GatewayPelican;
 
+use Dylaris\GatewayPanel\AllowedDomain;
 use Dylaris\GatewayPanel\Mode;
 use Dylaris\GatewayPanel\NodeState;
 use Dylaris\GatewayPanel\ServerState;
@@ -85,6 +86,8 @@ final class EloquentStateStore implements StateStore
             $row->region,
             array_map(Mode::from(...), json_decode($row->allowed_modes, true, flags: JSON_THROW_ON_ERROR)),
             $row->target_host,
+            // Absent before the 2026_11_17 migration ran; null either way means never saved.
+            isset($row->domains) ? array_map(AllowedDomain::fromArray(...), json_decode($row->domains, true, flags: JSON_THROW_ON_ERROR)) : null,
         );
     }
 
@@ -95,6 +98,7 @@ final class EloquentStateStore implements StateStore
             'region' => $n->region,
             'allowed_modes' => json_encode(array_map(fn (Mode $m) => $m->value, $n->allowedModes), JSON_THROW_ON_ERROR),
             'target_host' => $n->targetHost,
+            'domains' => $n->domains === null ? null : json_encode(array_map(fn (AllowedDomain $d) => $d->toArray(), $n->domains), JSON_THROW_ON_ERROR),
         ]);
     }
 

@@ -4,11 +4,14 @@ namespace Dylaris\GatewayPelican;
 
 use App\Contracts\Plugins\HasPluginSettings;
 use App\Enums\TablerIcon;
+use App\Models\Egg;
 use Dylaris\GatewayPanel\Provider\Account;
 use Dylaris\GatewayPanel\Provider\ProviderClient;
 use Dylaris\GatewayPanel\Provider\ProviderException;
+use Dylaris\GatewayPelican\Filament\Server\Pages\GatewayPage;
 use Filament\Actions\Action;
 use Filament\Contracts\Plugin;
+use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Panel;
@@ -18,46 +21,30 @@ class DylarisGatewayPlugin implements HasPluginSettings, Plugin
 {
     private const SCOPES = ['gateway.read', 'gateway.write'];
 
-    public const URL_NEEDS_KEY = 'Enter the API key again when you change the provider URL.';
-
-    public const KEY_FOR_OTHER_URL = 'Enter the API key to test a different provider URL: the saved key is only sent to the saved URL.';
-
     public function getId(): string
     {
         return 'dylaris-gateway';
     }
 
-    public function register(Panel $panel): void {}
+    public function register(Panel $panel): void
+    {
+        // A page of its own in the server's navigation; the panel loads a plugin into every panel it has.
+        if ($panel->getId() === 'server') {
+            $panel->pages([GatewayPage::class]);
+        }
+    }
 
     public function boot(Panel $panel): void {}
 
     public function getSettingsFormData(): array
     {
         // The key never goes back to the browser; a blank field keeps the saved one.
-        return ['provider_url' => GatewaySettings::current()->provider_url, 'api_key' => null];
+        return ['api_key' => null, 'eggs' => self::allowedEggIds()];
     }
 
     public function getSettingsForm(): array
     {
         return [
-            TextInput::make('provider_url')
-                ->label('Provider URL')
-                ->url()
-                ->required()
-                // Checked here because Pelican swallows an exception from saveSettings: a late refusal would be silent.
-                ->rules([fn (Get $get): \Closure => function (string $attribute, mixed $value, \Closure $fail) use ($get) {
-                    if (!self::validUrl(trim((string) $value))) {
-                        $fail('The provider URL must be an http or https URL.');
-                    } elseif (self::urlNeedsKey((string) $value, (string) $get('api_key'))) {
-                        $fail(self::URL_NEEDS_KEY);
-                    }
-                }])
-                ->live(onBlur: true)
-                ->hint(fn (?string $state) => str_starts_with(strtolower(trim((string) $state)), 'http://')
-                    ? 'This URL is not https: the API key would travel unencrypted.'
-                    : null)
-                ->hintColor('warning')
-                ->default(GatewaySettings::DEFAULT_URL),
             TextInput::make('api_key')
                 ->label('API key')
                 ->password()
@@ -70,54 +57,68 @@ class DylarisGatewayPlugin implements HasPluginSettings, Plugin
                         ->authorize(fn () => user()?->can('update plugin'))
                         ->action(function (Get $get) {
                             try {
-                                [$url, $key] = self::testCredentials((string) $get('provider_url'), (string) $get('api_key'));
+                                $key = self::testKey((string) $get('api_key'));
                             } catch (GatewayUnavailable $e) {
                                 Notification::make()->title($e->getMessage())->danger()->send();
 
                                 return;
                             }
-                            $problem = self::connectionProblem(new ProviderClient($url, $key));
+                            $problem = self::connectionProblem(new ProviderClient(GatewaySettings::providerUrl(), $key));
                             $problem === null
                                 ? Notification::make()->title('Connected: managed gateway plan with read and write access.')->success()->send()
                                 : Notification::make()->title('Connection test failed')->body($problem)->danger()->send();
                         }),
                 ),
+            CheckboxList::make('eggs')
+                ->label('Eggs that may use the gateway')
+                ->options(fn () => Egg::query()->orderBy('name')->pluck('name', 'id')->all())
+                ->columns(2)
+                ->bulkToggleable()
+                ->helperText('The gateway carries Minecraft Java only (Bedrock players join through Geyser in front of a Java server). Servers of any other egg get no gateway. Until this is saved: the eggs with the minecraft tag or the eula or java_version feature, without Bedrock. Once saved, exactly the ticked eggs; tick an egg imported later here.'),
         ];
     }
 
     public function saveSettings(array $data): void
     {
-        $url = rtrim(trim((string) ($data['provider_url'] ?? '')), '/');
-        if (!self::validUrl($url)) {
-            throw new \InvalidArgumentException('The provider URL must be an http or https URL.');
-        }
         $s = GatewaySettings::current();
         $key = trim((string) ($data['api_key'] ?? ''));
-        if (self::urlNeedsKey($url, $key)) {
-            throw new \InvalidArgumentException(self::URL_NEEDS_KEY);
-        }
         if ($key !== '') {
             // Eloquent decrypts the old value to compare it on save; an unreadable one must not block its replacement.
             $s->setRawAttributes(['api_key' => null] + $s->getAttributes(), true);
             $s->api_key = $key;
         }
-        $s->provider_url = $url;
+        if (array_key_exists('eggs', $data)) {
+            $chosen = array_values(array_unique(array_map('intval', (array) $data['eggs'])));
+            sort($chosen);
+            $s->eggs = $chosen;
+        }
+        $s->provider_url = GatewaySettings::providerUrl();
         $s->save();
     }
 
-    /** The saved key only ever goes to the saved URL, so whoever changes the URL must know the key. */
-    private static function urlNeedsKey(string $url, string $typedKey): bool
+    /** @return list<int> what the admin allowed, or the detected Minecraft eggs while nothing is saved */
+    public static function allowedEggIds(): array
     {
-        $saved = GatewaySettings::current();
+        $saved = GatewaySettings::current()->eggs;
 
-        return trim($typedKey) === '' && $saved->hasKey() && rtrim(trim($url), '/') !== rtrim((string) $saved->provider_url, '/');
+        return $saved === null ? self::detectedEggIds() : array_map('intval', $saved);
+    }
+
+    /** @return list<int> sorted */
+    public static function detectedEggIds(): array
+    {
+        $ids = Egg::query()->get()->filter(fn (Egg $e) => GatewaySettings::isMinecraft($e))->map(fn (Egg $e) => (int) $e->id)->values()->all();
+        sort($ids);
+
+        return $ids;
     }
 
     private static function keyHelp(): string
     {
+        $where = 'Calls go only to ' . GatewaySettings::providerUrl() . '.';
         $s = GatewaySettings::current();
         if (!$s->hasKey()) {
-            return 'Use a key dedicated to this panel, never one a DYLARIS customer Core uses.';
+            return "Use a key dedicated to this panel, never one a DYLARIS customer Core uses. {$where}";
         }
         try {
             $s->apiKey();
@@ -125,33 +126,22 @@ class DylarisGatewayPlugin implements HasPluginSettings, Plugin
             return $e->getMessage();
         }
 
-        return 'A key is saved. Leave blank to keep it; a new provider URL needs the key again. Use a key dedicated to this panel.';
+        return "A key is saved. Leave blank to keep it. Use a key dedicated to this panel. {$where}";
     }
 
     /**
-     * The URL and key a connection test uses: the typed ones, a blank URL meaning the saved one. A blank key means the
-     * saved one, but only for the saved URL, so the saved key never goes to a URL typed into the form.
-     *
-     * @return array{string, string}
+     * The key a connection test uses: the typed one, or the saved one when the field is blank.
      *
      * @throws GatewayUnavailable with the sentence for the admin
      */
-    public static function testCredentials(string $typedUrl, string $typedKey): array
+    public static function testKey(string $typedKey): string
     {
-        $saved = GatewaySettings::current();
-        $url = rtrim(trim($typedUrl), '/') ?: (string) $saved->provider_url;
-        $key = trim($typedKey);
+        $key = trim($typedKey) !== '' ? trim($typedKey) : (string) GatewaySettings::current()->apiKey();
         if ($key === '') {
-            if ($url !== rtrim((string) $saved->provider_url, '/')) {
-                throw new GatewayUnavailable(self::KEY_FOR_OTHER_URL);
-            }
-            $key = (string) $saved->apiKey();
-        }
-        if ($key === '' || !self::validUrl($url)) {
-            throw new GatewayUnavailable('Enter a provider URL and an API key first.');
+            throw new GatewayUnavailable('Enter an API key first.');
         }
 
-        return [$url, $key];
+        return $key;
     }
 
     /** What is wrong with this key for the managed gateway, as a sentence for the admin, or null. */
@@ -179,11 +169,5 @@ class DylarisGatewayPlugin implements HasPluginSettings, Plugin
             1 => "This key lacks the {$missing[0]} permission.",
             default => 'This key lacks the ' . implode(' and ', $missing) . ' permissions.',
         };
-    }
-
-    private static function validUrl(string $url): bool
-    {
-        return filter_var($url, FILTER_VALIDATE_URL) !== false
-            && in_array(strtolower((string) parse_url($url, PHP_URL_SCHEME)), ['http', 'https'], true);
     }
 }

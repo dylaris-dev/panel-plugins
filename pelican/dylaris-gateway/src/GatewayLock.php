@@ -51,4 +51,16 @@ final class GatewayLock
     {
         return "dylaris-gateway-label-{$serverId}";
     }
+
+    public static function domainsKey(int $nodeId, bool $admin): string
+    {
+        return "dylaris-gateway-domains-{$nodeId}-" . ($admin ? 'admin' : 'user');
+    }
+
+    /** After the node's domain list changed. */
+    public static function forgetDomains(int $nodeId): void
+    {
+        Cache::forget(self::domainsKey($nodeId, true));
+        Cache::forget(self::domainsKey($nodeId, false));
+    }
 }

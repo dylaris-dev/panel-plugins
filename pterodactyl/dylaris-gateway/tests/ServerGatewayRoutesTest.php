@@ -2,6 +2,7 @@
 
 namespace Dylaris\GatewayPteroTests;
 
+use Dylaris\GatewayPanel\AllowedDomain;
 use Dylaris\GatewayPtero\ReconcileRunner;
 use Illuminate\Support\Facades\Cache;
 use Dylaris\GatewayPanel\Mode;
@@ -102,12 +103,12 @@ class ServerGatewayRoutesTest extends ExtensionTestCase
         return $this->actingAs($user);
     }
 
-    public function test_the_permission_is_registered_for_subusers(): void
+    public function test_the_three_permissions_are_registered_for_subusers(): void
     {
-        $this->assertSame('ext.dylaris-gateway.manage', Permissions::MANAGE);
+        $this->assertSame(['ext.dylaris-gateway.view', 'ext.dylaris-gateway.mode', 'ext.dylaris-gateway.address'], [Permissions::VIEW, Permissions::MODE, Permissions::ADDRESS]);
         $group = $this->app->make(ExtensionPermissionRegistry::class)->all()['ext.dylaris-gateway'] ?? null;
         $this->assertNotNull($group, 'the extension registered its permission group');
-        $this->assertArrayHasKey('manage', $group['keys']);
+        $this->assertSame(['view', 'mode', 'address'], array_keys($group['keys']));
     }
 
     public function test_a_subuser_without_the_permission_is_refused_everywhere(): void
@@ -138,7 +139,7 @@ class ServerGatewayRoutesTest extends ExtensionTestCase
     {
         $wings = new FakeDaemonServer();
         $this->nodeConnected();
-        $this->asSubuser([Permissions::MANAGE]);
+        $this->asSubuser([Permissions::MODE, Permissions::ADDRESS]);
         $this->server->update(['name' => 'Survival 1']);
 
         $this->getJson($this->url())->assertOk()
@@ -402,8 +403,9 @@ class ServerGatewayRoutesTest extends ExtensionTestCase
         $this->nodeConnected();
         $this->asOwner();
         $this->getJson($this->url())->assertOk();
+        $first = $this->providerCalls('GET regions');
         $this->getJson($this->url())->assertOk();
-        $this->assertSame(1, $this->providerCalls('GET regions'), 'label suggestion cached per server');
+        $this->assertSame($first, $this->providerCalls('GET regions'), 'label suggestion and domains cached');
 
         $this->inMode(Mode::Both);
         $this->getJson($this->url())->assertOk();
@@ -423,5 +425,135 @@ class ServerGatewayRoutesTest extends ExtensionTestCase
         $this->getJson($this->url())->assertOk()->assertJsonPath('data.status', ModeService::PROVIDER_BUSY);
 
         $this->assertSame([], $this->provider->calls);
+    }
+
+    public function test_view_only_reads_but_changes_nothing(): void
+    {
+        $this->nodeConnected();
+        $this->inMode(Mode::Both);
+        $this->asSubuser([Permissions::VIEW]);
+
+        $this->getJson($this->url())->assertOk()
+            ->assertJsonPath('data.address', 'mc.play.example.net')
+            ->assertJsonPath('data.can_mode', false)
+            ->assertJsonPath('data.can_address', false)
+            ->assertJsonPath('data.domains', []);
+        $this->postJson($this->url('/mode'), ['mode' => 'direct'])->assertForbidden();
+        $this->postJson($this->url('/address'), ['domain' => 'play.example.net', 'label' => 'x'])->assertForbidden();
+        $this->postJson($this->url('/bedrock'), ['enabled' => true])->assertForbidden();
+        $this->get($this->url('/floodgate-key'))->assertForbidden();
+        $this->assertSame(Mode::Both, $this->store()->get($this->server->id)->mode);
+    }
+
+    public function test_mode_only_switches_and_the_extension_picks_the_address(): void
+    {
+        $wings = new FakeDaemonServer();
+        $this->nodeConnected();
+        $this->server->update(['name' => 'Lobby']);
+        $this->asSubuser([Permissions::MODE]);
+
+        $this->getJson($this->url())->assertOk()->assertJsonPath('data.can_mode', true)->assertJsonPath('data.can_address', false);
+        $this->postJson($this->url('/mode'), ['mode' => 'both', 'label' => 'sneaky', 'domain' => 'play.example.net'])->assertOk();
+        $this->postJson($this->url('/address'), ['domain' => 'play.example.net', 'label' => 'x'])->assertForbidden();
+
+        $this->assertSame('lobby.play.example.net', $this->store()->get($this->server->id)->domain());
+    }
+
+    public function test_address_only_renames_behind_the_gateway_new_route_first_old_one_last(): void
+    {
+        $this->nodeConnected();
+        $this->inMode(Mode::Both);
+        $this->asSubuser([Permissions::ADDRESS]);
+        $this->provider->on('DELETE routes/mc.play.example.net', 200, ['success' => true]);
+
+        $this->getJson($this->url())->assertOk()
+            ->assertJsonPath('data.can_mode', false)
+            ->assertJsonPath('data.can_address', true)
+            ->assertJsonPath('data.domain', 'play.example.net')
+            ->assertJsonPath('data.label', 'mc');
+        $this->postJson($this->url('/mode'), ['mode' => 'direct'])->assertForbidden();
+        $this->postJson($this->url('/address'), ['domain' => 'play.example.net', 'label' => 'newname'])->assertOk()
+            ->assertJsonPath('message', 'The gateway address is now newname.play.example.net. The old address mc.play.example.net no longer works: tell your players.')
+            ->assertJsonPath('data.address', 'newname.play.example.net');
+
+        $keys = array_column($this->provider->calls, 'key');
+        $this->assertLessThan(array_search('DELETE routes/mc.play.example.net', $keys, true), array_search('POST routes', $keys, true));
+        $this->assertSame(Mode::Both, $this->store()->get($this->server->id)->mode);
+    }
+
+    public function test_a_failed_rename_keeps_the_old_address(): void
+    {
+        $this->nodeConnected();
+        $this->inMode(Mode::Both);
+        $this->asOwner();
+        $this->provider->on('POST routes', 409, ['error' => 'That address is already in use.', 'code' => 'domain_taken']);
+
+        $this->postJson($this->url('/address'), ['domain' => 'play.example.net', 'label' => 'taken'])
+            ->assertStatus(422)
+            ->assertJsonPath('error', 'That address is already in use.');
+
+        $this->assertSame('mc.play.example.net', $this->store()->get($this->server->id)->domain());
+        $this->assertNotContains('DELETE routes/mc.play.example.net', array_column($this->provider->calls, 'key'));
+    }
+
+    public function test_the_domain_list_of_the_node_is_offered_and_admins_only_ones_are_hidden(): void
+    {
+        $this->store()->putNode(new NodeState($this->server->node_id, 'link-1', 'eu', Mode::cases(), '172.18.0.1', [
+            new AllowedDomain('play.example.net', false, false, 'alphanumeric'),
+            new AllowedDomain('vip.example.com', true, true),
+            new AllowedDomain('own.example.com', true),
+        ]));
+        $wings = new FakeDaemonServer();
+        $this->asOwner();
+
+        $this->getJson($this->url())->assertOk()->assertJsonPath('data.domains', [
+            ['value' => 'play.example.net', 'label' => 'play.example.net', 'custom' => false],
+            ['value' => 'own.example.com', 'label' => 'own.example.com (own domain, the whole address)', 'custom' => true],
+        ]);
+        $this->postJson($this->url('/mode'), ['mode' => 'both', 'domain' => 'vip.example.com'])->assertStatus(422)
+            ->assertJsonPath('error', 'That domain is not offered for this server.');
+        $this->postJson($this->url('/mode'), ['mode' => 'both', 'domain' => 'own.example.com', 'label' => 'ignored'])->assertOk()
+            ->assertJsonPath('data.address', 'own.example.com');
+        $this->assertSame([['linkId' => 'link-1', 'customDomain' => 'own.example.com', 'targetHost' => '172.18.0.1', 'targetPort' => 25565]], $this->provider->bodies('POST routes'));
+    }
+
+    public function test_a_server_of_another_egg_gets_no_gateway(): void
+    {
+        $this->nodeConnected();
+        $this->asOwner();
+        $this->setEggs([]);
+
+        $this->getJson($this->url())->assertOk()
+            ->assertJsonPath('data.not_allowed', ModeService::MINECRAFT_ONLY)
+            ->assertJsonPath('data.modes', [['value' => 'direct', 'label' => 'Direct']])
+            ->assertJsonPath('data.can_address', false);
+        $this->postJson($this->url('/mode'), ['mode' => 'both'])->assertStatus(422)->assertJsonPath('error', ModeService::MINECRAFT_ONLY);
+        $this->assertSame([], $this->provider->bodies('POST routes'));
+    }
+
+    public function test_a_server_already_behind_the_gateway_keeps_it_until_an_admin_switches_it(): void
+    {
+        $this->nodeConnected();
+        $this->inMode(Mode::Both);
+        $this->setEggs([]);
+        $this->provider->on('DELETE routes/mc.play.example.net', 200, ['success' => true]);
+        $wings = new FakeDaemonServer();
+        $this->actingAs(User::factory()->create(['root_admin' => true]));
+
+        $this->getJson($this->url())->assertOk()
+            ->assertJsonPath('data.not_allowed', ModeService::NO_LONGER_ALLOWED)
+            ->assertJsonPath('data.address', 'mc.play.example.net')
+            ->assertJsonPath('data.modes', [['value' => 'direct', 'label' => 'Direct'], ['value' => 'both', 'label' => 'Both']]);
+        $this->postJson($this->url('/mode'), ['mode' => 'gateway_only'])->assertStatus(422)->assertJsonPath('error', ModeService::NO_LONGER_ALLOWED);
+        $this->postJson($this->url('/mode'), ['mode' => 'direct'])->assertOk();
+    }
+
+    /** @param list<int> $eggIds */
+    private function setEggs(array $eggIds): void
+    {
+        \Illuminate\Support\Facades\DB::table('extension_settings')->updateOrInsert(
+            ['extension' => self::ID, 'scope' => 'global', 'key' => 'eggs'],
+            ['value' => json_encode($eggIds), 'is_secret' => false],
+        );
     }
 }

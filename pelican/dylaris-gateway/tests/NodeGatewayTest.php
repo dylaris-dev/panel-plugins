@@ -2,6 +2,7 @@
 
 namespace Dylaris\GatewayPelican\Tests;
 
+use Dylaris\GatewayPanel\AllowedDomain;
 use Illuminate\Support\Facades\Cache;
 use App\Enums\TablerIcon;
 use App\Filament\Admin\Resources\Nodes\Pages\EditNode;
@@ -84,7 +85,7 @@ class NodeGatewayTest extends PluginTestCase
             ->assertSee('network_mode: host')
             ->assertSee('restart: unless-stopped')
             ->assertSee('stop_grace_period: 6h10m')
-            ->assertSee('CORE_URL: &quot;https://provider.example&quot;', false)
+            ->assertSee('CORE_URL: &quot;https://panel.dylaris.com&quot;', false)
             ->assertSee('LINK_DRAIN_TIMEOUT: &quot;6h&quot;', false)
             ->assertSee('LINK_ALLOWED_TARGETS: &quot;172.20.0.1&quot;', false)
             ->assertSee('LOCAL_HOST: &quot;172.20.0.1&quot;', false);
@@ -244,5 +245,37 @@ class NodeGatewayTest extends PluginTestCase
 
         $this->assertSame([], $this->provider->bodies('POST link-kits'));
         $this->assertNull($this->store()->node($this->node->id)?->linkId);
+    }
+
+    public function test_the_admin_picks_the_offered_domains_from_hoster_and_verified_own_domains(): void
+    {
+        $this->connected();
+        $this->provider->on('GET custom-domains', 200, ['items' => [
+            ['domain' => 'own.example.com', 'state' => 'verified'],
+            ['domain' => 'pending.example.com', 'state' => 'pending'],
+        ]]);
+
+        $tab = Livewire::test(NodeGateway::class, ['node' => $this->node])
+            ->assertSee('own.example.com (own domain)')
+            ->assertDontSee('pending.example.com')
+            ->assertSee('Add and verify own domains in the DYLARIS panel')
+            ->assertSee('https://panel.dylaris.com/nodes?tab=routes')
+            ->assertFormSet(['domains' => ['play.example.net'], 'admin_only' => []]);
+
+        $tab->fillForm(['domains' => ['play.example.net', 'own.example.com'], 'admin_only' => ['own.example.com']])
+            ->callAction('saveDomains')
+            ->assertNotified('Domains saved. Servers that already have an address keep it.');
+
+        $this->assertEquals([
+            new AllowedDomain('play.example.net', false, false, 'alphanumeric'),
+            new AllowedDomain('own.example.com', true, true),
+        ], $this->store()->node($this->node->id)->domains);
+        $this->assertSame(['eu', Mode::cases()], [$this->store()->node($this->node->id)->region, $this->store()->node($this->node->id)->allowedModes], 'the rest of the node row stays');
+
+        Livewire::test(NodeGateway::class, ['node' => $this->node])
+            ->assertFormSet(['domains' => ['play.example.net', 'own.example.com'], 'admin_only' => ['own.example.com']])
+            ->fillForm(['domains' => []])
+            ->callAction('saveDomains')
+            ->assertNotified('Offer at least one domain.');
     }
 }

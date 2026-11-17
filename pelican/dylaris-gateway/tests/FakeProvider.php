@@ -33,9 +33,10 @@ final class FakeProvider
         $fake->on('GET link-kits', 200, ['items' => []]);
         $fake->on('GET routes', 200, ['items' => []]);
         $fake->on('GET players', 200, ['items' => []]);
+        $fake->on('GET custom-domains', 200, ['items' => []]);
         $fake->on('GET check-domain', 200, ['available' => true, 'reason' => '']);
         $fake->on('POST routes', 200, ['success' => true]);
-        (new DylarisGatewayPlugin())->saveSettings(['provider_url' => self::URL, 'api_key' => 'dgk_test_api_key']);
+        (new DylarisGatewayPlugin())->saveSettings(['api_key' => 'dgk_test_api_key']);
         $app->bind(ProviderClient::class, fn () => new ProviderClient(self::URL, 'dgk_test_api_key', new Client(['handler' => HandlerStack::create($fake)])));
 
         return $fake;

@@ -2,10 +2,8 @@
 
 namespace Dylaris\GatewayPelican\Providers;
 
-use App\Enums\ConsoleWidgetPosition;
 use App\Enums\TabPosition;
 use App\Filament\Admin\Resources\Nodes\Pages\EditNode;
-use App\Filament\Server\Pages\Console;
 use App\Models\Node;
 use Composer\Autoload\ClassLoader;
 use Dylaris\GatewayPanel\ModeService;
@@ -44,10 +42,10 @@ class DylarisGatewayServiceProvider extends ServiceProvider
         $this->app->bind(ProviderClient::class, function () {
             $s = GatewaySettings::current();
             if (!$s->exists || !$s->hasKey()) {
-                throw new GatewayUnavailable('The DYLARIS gateway is not set up yet: enter the provider URL and API key in the plugin settings.');
+                throw new GatewayUnavailable('The DYLARIS gateway is not set up yet: enter the API key in the plugin settings.');
             }
 
-            return new ProviderClient($s->provider_url, (string) $s->apiKey());
+            return new ProviderClient(GatewaySettings::providerUrl(), (string) $s->apiKey());
         });
         $this->app->bind(ModeService::class, fn (Application $app) => new ModeService(
             $app->make(ProviderClient::class), $app->make(PanelAdapter::class), $app->make(StateStore::class),
@@ -79,7 +77,6 @@ class DylarisGatewayServiceProvider extends ServiceProvider
                 // Lazy: the tab asks the provider, which must not slow down or break the node page.
                 ->schema([LivewireComponent::make(NodeGateway::class, fn (Node $record) => ['node' => $record])->lazyLoaded()->columnSpanFull()]));
         }
-        Console::registerCustomWidgets(ConsoleWidgetPosition::BelowConsole, [GatewayWidget::class]);
 
         $this->commands([ReconcileCommand::class]);
         $this->callAfterResolving(Schedule::class, function (Schedule $schedule) {
