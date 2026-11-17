@@ -7,7 +7,7 @@ One version covers both plugins; the release assets are `dylaris-gateway-pelican
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-11-17
+## [0.2.0] - 2026-11-18
 
 ### Added
 - **Gateway domains**, one list of address domains for the whole panel (Pelican: admin area, Advanced; Pterodactyl
@@ -39,6 +39,10 @@ One version covers both plugins; the release assets are `dylaris-gateway-pelican
   2.2.5 and ViaVersion 5.12.2.
 - Docs: the Bedrock steps say that a server on an older Minecraft Java version also needs ViaVersion, because DYLARIS'
   Geyser always speaks the newest Java version; without it Bedrock players see `Outdated server!`.
+
+### Fixed
+- When the Wings sync failed during a mode switch after the panel had already saved the allocation change,
+  the new loopback allocation stayed assigned. Every undo step is now registered before its panel call.
 
 ## [0.1.0] - 2026-11-17
 
