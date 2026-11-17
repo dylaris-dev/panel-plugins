@@ -30,6 +30,6 @@ class ManifestTest extends ExtensionTestCase
     {
         $manifest = json_decode(file_get_contents(dirname(__DIR__) . '/extension.json'), true);
         $this->assertStringContainsString('Calls go only to the DYLARIS provider at https://panel.dylaris.com.', $manifest['description']);
-        $this->assertSame('0.2.0', $manifest['version']);
+        $this->assertSame('0.1.0', $manifest['version']);
     }
 }

@@ -2,7 +2,7 @@
     "id": "dylaris-gateway",
     "name": "DYLARIS Gateway",
     "author": "DYLARIS",
-    "version": "0.2.0",
+    "version": "0.1.0",
     "description": "Put a Minecraft server behind the DYLARIS Managed Gateway: direct, both, or gateway only. Calls go only to the DYLARIS provider at https://panel.dylaris.com.",
     "category": "plugin",
     "url": "https://github.com/dylaris-dev/panel-plugins",

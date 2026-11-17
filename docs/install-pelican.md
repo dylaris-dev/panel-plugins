@@ -41,13 +41,6 @@ It must print `dylaris-gateway-pelican-<version>.zip: OK`. Without `sha256sum`, 
 3. Pelican keeps a plugin's status in `plugin.json`. Overwriting the folder with a fresh copy resets the status to not
    installed, so run `p:plugin:install` again after every update.
 
-### Update from 0.1.0
-
-Delete `plugins/dylaris-gateway`, unzip the new file into `plugins/`, and run `php artisan p:plugin:install dylaris-gateway`.
-It runs the new migrations. The saved API key stays. Subusers who had **Manage the gateway** (`gateway.manage`) get the
-three new permissions (view, mode, address), so they can do everything they could before. The gateway box moved from the
-bottom of the console page to its own **Gateway** page in the server's navigation.
-
 ## Connect the panel to the provider
 
 1. Admin area, Plugins, DYLARIS Gateway, Settings.

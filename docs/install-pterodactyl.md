@@ -45,13 +45,6 @@ php artisan p:extension:install dylaris-gateway-pterodactyl-<version>.pteroext -
 It prints `Installed DYLARIS Gateway (dylaris-gateway) v<version> - enabled.` To update, install the new file with
 `--replace --enable`; the saved API key survives.
 
-### Update from 0.1.0
-
-`php artisan p:extension:install dylaris-gateway-pterodactyl-0.2.0.pteroext --replace --enable` runs the new
-migrations. The saved API key stays. Subusers who had `ext.dylaris-gateway.manage` get the three new permissions
-(view, mode, address), so they can do everything they could before. The provider URL setting is gone; a value saved by
-0.1.0 is ignored.
-
 ## Connect the panel to the provider
 
 1. Admin area, Extensions, DYLARIS Gateway, settings dialog: the API key. There is no provider URL to enter: the
