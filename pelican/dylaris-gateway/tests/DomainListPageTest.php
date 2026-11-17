@@ -170,18 +170,42 @@ class DomainListPageTest extends PluginTestCase
         $this->assertSame(['new.example.net' => false, 'play.example.net' => true, 'vip.example.com' => false], array_column(array_map(fn ($e) => ['d' => $e->domain, 'on' => $e->enabled], $this->store()->domains()), 'on', 'd'));
     }
 
-    public function test_a_node_without_a_saved_list_enables_every_official_domain(): void
+    /** Review F2 (ruling): admins only always wins; only a connected node without a list counts as "every domain". */
+    public function test_a_connected_node_without_a_list_turns_new_official_domains_on_but_never_an_admins_only_mark(): void
     {
         $a = Node::factory()->create();
-        Node::factory()->create(); // never opened its Gateway tab: no row at all
+        $b = Node::factory()->create();
+        Node::factory()->create(); // never set up for the gateway: ignored
         $this->store()->putNode(new NodeState($a->id, 'link-1', 'eu', Mode::cases()));
         $this->migration()->down();
-        DB::table('dylaris_gateway_nodes')->update(['domains' => json_encode([['domain' => 'play.example.net', 'custom' => false, 'admin_only' => true, 'validation' => 'dns']])]);
+        DB::table('dylaris_gateway_nodes')->where('node_id', $a->id)->update(['domains' => json_encode([['domain' => 'play.example.net', 'custom' => false, 'admin_only' => true, 'validation' => 'dns']])]);
 
         $this->migration()->up();
+        $this->assertFalse($this->store()->domains()[0]->enabled, 'the admins-only mark wins');
+        $this->assertFalse($this->store()->domainSync()->newOfficialEnabled, 'the node without a gateway row means nothing');
 
-        $this->assertTrue($this->store()->domains()[0]->enabled);
+        // Now a connected node that never saved a list: new official domains arrive on.
+        $this->migration()->down();
+        $this->store()->putNode(new NodeState($b->id, 'link-2', 'eu', Mode::cases()));
+        DB::table('dylaris_gateway_nodes')->where('node_id', $b->id)->update(['domains' => null]);
+        $this->migration()->up();
+        $this->assertFalse($this->store()->domains()[0]->enabled);
         $this->assertTrue($this->store()->domainSync()->newOfficialEnabled);
+    }
+
+    /** Review F3: while a sync holds the list's lock, an admin change is refused and the page's sync is skipped. */
+    public function test_the_list_lock_holds_changes_back(): void
+    {
+        $lock = \Illuminate\Support\Facades\Cache::lock(\Dylaris\GatewayPelican\GatewayLock::DOMAINS_LOCK, 120);
+        $this->assertTrue($lock->get());
+        try {
+            $this->app->make(\Dylaris\GatewayPanel\DomainList::class)->ensureFresh();
+            $this->assertSame([], $this->provider->calls, 'the page did not sync next to the running one');
+        } finally {
+            $lock->release();
+        }
+        $this->app->make(\Dylaris\GatewayPanel\DomainList::class)->ensureFresh();
+        $this->assertSame(['GET regions', 'GET custom-domains'], array_column($this->provider->calls, 'key'));
     }
 
     public function test_down_writes_the_list_back_to_every_node(): void

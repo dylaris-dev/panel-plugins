@@ -37,13 +37,13 @@ class ExtensionServiceProvider extends ExtensionProvider
             return new ProviderClient(GatewaySettings::providerUrl(), $key);
         });
         $this->app->bind(ModeService::class, fn (Application $app) => new ModeService(
-            $app->make(ProviderClient::class), $app->make(PanelAdapter::class), $app->make(StateStore::class),
+            $app->make(ProviderClient::class), $app->make(PanelAdapter::class), $app->make(StateStore::class), $app->make(DomainList::class),
         ));
         $this->app->bind(Reconciler::class, fn (Application $app) => new Reconciler(
             $app->make(ProviderClient::class), $app->make(PanelAdapter::class), $app->make(StateStore::class),
         ));
         $this->app->bind(DomainList::class, fn (Application $app) => new DomainList(
-            $app->make(ProviderClient::class), $app->make(StateStore::class),
+            $app->make(ProviderClient::class), $app->make(StateStore::class), ReconcileRunner::domains(...),
         ));
         $this->app->bind(StatusService::class, fn (Application $app) => new StatusService(
             $app->make(ProviderClient::class), $app->make(StateStore::class), $app->make(PanelAdapter::class),

@@ -18,6 +18,7 @@ use Dylaris\GatewayPelican\Console\SyncDomainsCommand;
 use Dylaris\GatewayPelican\EloquentStateStore;
 use Dylaris\GatewayPelican\Filament\Server\Widgets\GatewayWidget;
 use Dylaris\GatewayPelican\GatewaySettings;
+use Dylaris\GatewayPelican\GatewayLock;
 use Dylaris\GatewayPelican\GatewayUnavailable;
 use Dylaris\GatewayPelican\Livewire\NodeGateway;
 use Dylaris\GatewayPelican\PelicanPanelAdapter;
@@ -51,13 +52,13 @@ class DylarisGatewayServiceProvider extends ServiceProvider
             return new ProviderClient(GatewaySettings::providerUrl(), (string) $s->apiKey());
         });
         $this->app->bind(ModeService::class, fn (Application $app) => new ModeService(
-            $app->make(ProviderClient::class), $app->make(PanelAdapter::class), $app->make(StateStore::class),
+            $app->make(ProviderClient::class), $app->make(PanelAdapter::class), $app->make(StateStore::class), $app->make(DomainList::class),
         ));
         $this->app->bind(Reconciler::class, fn (Application $app) => new Reconciler(
             $app->make(ProviderClient::class), $app->make(PanelAdapter::class), $app->make(StateStore::class),
         ));
         $this->app->bind(DomainList::class, fn (Application $app) => new DomainList(
-            $app->make(ProviderClient::class), $app->make(StateStore::class),
+            $app->make(ProviderClient::class), $app->make(StateStore::class), GatewayLock::domains(...),
         ));
         $this->app->bind(StatusService::class, fn (Application $app) => new StatusService(
             $app->make(ProviderClient::class), $app->make(StateStore::class), $app->make(PanelAdapter::class),

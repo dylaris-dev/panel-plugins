@@ -106,6 +106,19 @@ final class DomainListTest extends TestCase
         $this->assertSame(['old.dylaris.com', true], [$back->domain, $back->gone]);
     }
 
+    /** Review F1: Core lists a region only while one of its edges is registered; an outage must not make its domain global. */
+    public function testAKnownRegionStaysWhenTheRegionIsMissingFromOneAnswer(): void
+    {
+        $hosters = [new HosterDomain('eu.dylaris.com', 'letters'), new HosterDomain('us.dylaris.com', 'dns')];
+        $first = DomainList::merge([], new Regions($hosters, [new Region('eu-central', '*.eu.dylaris.com', true), new Region('us-east', '*.us.dylaris.com', true)]), [], self::NOW);
+
+        $second = DomainList::merge($first, new Regions($hosters, [new Region('eu-central', '*.eu.dylaris.com', true)]), [], self::NOW + 1);
+
+        $this->assertSame(['eu-central', 'us-east'], array_map(fn ($e) => $e->region, $second));
+        $this->assertSame(['eu.dylaris.com'], self::names(DomainList::offered($second, 'eu-central', false)), 'the us domain stays off eu nodes');
+        $this->assertNull(DomainList::merge([], new Regions([new HosterDomain('x.example.net', 'dns')], []), [], self::NOW)[0]->region, 'never matched: no region');
+    }
+
     public function testADomainTheProviderListsAgainIsNoLongerGone(): void
     {
         $stored = [new DomainEntry('eu.dylaris.com', DomainEntry::OFFICIAL, false, 'letters', gone: true)];
@@ -137,15 +150,20 @@ final class DomainListTest extends TestCase
         $this->assertFalse($newOfficialEnabled, 'every node saved a list: official domains nobody ticked start off');
     }
 
-    public function testANodeWithoutASavedListMeantEveryOfficialDomain(): void
+    /** Review F2 (coordinator ruling): an explicit admins-only mark always wins; an unsaved gateway node only turns new official domains on. */
+    public function testANodeWithoutASavedListTurnsNewOfficialDomainsOnButNeverAnAdminsOnlyMark(): void
     {
-        $saved = [['domain' => 'us.dylaris.com', 'custom' => false, 'admin_only' => true, 'validation' => 'dns'], ['domain' => 'vip.example.com', 'custom' => true, 'admin_only' => true]];
+        $saved = [
+            ['domain' => 'us.dylaris.com', 'custom' => false, 'admin_only' => true, 'validation' => 'dns'],
+            ['domain' => 'eu.dylaris.com', 'custom' => false, 'admin_only' => false, 'validation' => 'letters'],
+            ['domain' => 'vip.example.com', 'custom' => true, 'admin_only' => true],
+        ];
 
         [$entries, $newOfficialEnabled] = DomainList::fromNodeLists([$saved, null]);
 
         $this->assertTrue($newOfficialEnabled);
-        $this->assertSame([true, false], array_map(fn ($e) => $e->enabled, $entries), 'official on, own admins only stays off');
-        $this->assertSame([[], true], DomainList::fromNodeLists([]), 'no node at all');
+        $this->assertSame(['eu.dylaris.com' => true, 'us.dylaris.com' => false, 'vip.example.com' => false], array_combine(self::names($entries), array_map(fn ($e) => $e->enabled, $entries)));
+        $this->assertSame([[], true], DomainList::fromNodeLists([]), 'no gateway node at all');
     }
 
     public function testASyncStoresTheListAndAFailureKeepsIt(): void
@@ -280,6 +298,67 @@ final class DomainListTest extends TestCase
         $this->list->remove('us.dylaris.com');
         $this->assertCount($calls, $this->provider->calls);
         $this->assertSame(['eu.dylaris.com'], self::names($this->store->domains()));
+    }
+
+    /** Review F4: verified in the DYLARIS panel meanwhile, the provider refuses a second verify; the row follows its list. */
+    public function testVerifyingADomainAlreadyVerifiedAtTheProviderUpdatesTheRow(): void
+    {
+        $this->list->addOwn('play.example.com');
+        $this->provider->customDomains['play.example.com']['state'] = 'verified';
+        $this->provider->failOn['POST custom-domains/play.example.com/verify-txt'] = new Response(400, [], '{"error":"That domain is already verified"}');
+
+        $this->assertSame('play.example.com is verified. Users can pick it once it is enabled.', $this->list->verifyOwn('play.example.com'));
+        $this->assertSame('verified', $this->store->domains()[0]->ownState);
+    }
+
+    /** Review F3: a sync and the admin's add, verify and remove each run alone; a held lock makes them wait or refuse. */
+    public function testListChangesRunUnderTheLockAndTheOnDemandSyncSkipsAHeldOne(): void
+    {
+        $held = false;
+        $runs = [];
+        $lock = function (callable $f, bool $wait) use (&$held, &$runs) {
+            $runs[] = $wait;
+            if ($held) {
+                if ($wait) {
+                    throw new ModeRefused(DomainList::BUSY);
+                }
+                return null;
+            }
+            return $f();
+        };
+        $list = new DomainList($this->provider->client(), $this->store, $lock(...));
+
+        $list->sync(self::NOW);
+        $list->addOwn('play.example.com');
+        $list->verifyOwn('play.example.com');
+        $list->remove('play.example.com');
+        $this->assertSame([true, true, true, true], $runs, 'sync, add, verify and remove each waited for the lock');
+
+        $held = true;
+        $calls = count($this->provider->calls);
+        $this->assertSame(DomainList::BUSY, $this->refusal(fn () => $list->addOwn('other.example.com')));
+        $list->ensureFresh(self::NOW + DomainList::MAX_AGE + 1);
+        $this->assertSame(false, end($runs), 'the on-demand sync does not wait');
+        $this->assertCount($calls, $this->provider->calls, 'and asks the provider nothing while another sync runs');
+    }
+
+    /** Review F5: the provider's Retry-After and the reconcile's wait both hold the on-demand sync back. */
+    public function testTheOnDemandSyncHonoursRetryAfter(): void
+    {
+        $this->provider->failOn['GET regions'] = new Response(429, ['Retry-After' => '3600'], '{"error":"Too many requests."}');
+        $this->list->ensureFresh(self::NOW);
+        $this->assertCount(1, $this->provider->calls);
+
+        $this->list->ensureFresh(self::NOW + DomainList::RETRY_AFTER + 1);
+        $this->assertCount(1, $this->provider->calls, '5 minutes are not enough when the provider said an hour');
+        $this->list->ensureFresh(self::NOW + 3601);
+        $this->assertCount(3, $this->provider->calls);
+
+        $store = new InMemoryStateStore();
+        $store->put(new \Dylaris\GatewayPanel\ServerState(7, \Dylaris\GatewayPanel\Mode::Both, 'a', 'eu.dylaris.com', 1, 25565, retryAfterUntil: self::NOW + 60));
+        $provider = new FakeProvider();
+        (new DomainList($provider->client(), $store))->ensureFresh(self::NOW);
+        $this->assertSame([], $provider->calls, 'the reconcile was told to wait: so is the page');
     }
 
     public function testAnOwnDomainAlreadyGoneAtTheProviderIsRemovedAllTheSame(): void

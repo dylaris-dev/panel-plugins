@@ -62,8 +62,6 @@ class DomainMigrationTest extends IntegrationTestCase
     {
         $a = $this->node();
         $b = $this->node();
-        // Any other node of the seeded database has no saved list, which by the rule turns new official domains on.
-        $othersUnsaved = Node::query()->whereNotIn('id', [$a->id, $b->id])->exists();
         $this->store()->putNode(new NodeState($a->id, 'link-1', 'eu', Mode::cases()));
         $this->store()->putNode(new NodeState($b->id, null, null, Mode::cases()));
         $this->migration()->down();
@@ -83,7 +81,7 @@ class DomainMigrationTest extends IntegrationTestCase
             new DomainEntry('play.example.net', DomainEntry::OFFICIAL, true, 'alphanumeric'),
             new DomainEntry('vip.example.com', DomainEntry::OWN, false),
         ], $this->store()->domains());
-        $this->assertEquals(new DomainSync(null, null, null, $othersUnsaved), $this->store()->domainSync());
+        $this->assertEquals(new DomainSync(null, null, null, false), $this->store()->domainSync(), 'every gateway node had a list; other panel nodes are ignored');
 
         $this->migration()->down();
         $this->assertSame([

@@ -36,12 +36,15 @@ return new class extends Migration
         });
 
         self::loadCore();
-        $saved = DB::table('dylaris_gateway_nodes')->pluck('domains', 'node_id')->all();
         $lists = [];
-        // A panel node without a row never saved a list either.
-        foreach (DB::table('nodes')->pluck('id') as $id) {
-            $json = $saved[$id] ?? null;
-            $lists[] = $json === null ? null : json_decode($json, true, flags: JSON_THROW_ON_ERROR);
+        // Gateway nodes only: a saved list counts, and so does a connected node that never saved one (it offered every
+        // official domain). A panel node never set up for the gateway had no list to mean anything.
+        foreach (DB::table('dylaris_gateway_nodes')->get(['link_id', 'domains']) as $row) {
+            if ($row->domains !== null) {
+                $lists[] = json_decode($row->domains, true, flags: JSON_THROW_ON_ERROR);
+            } elseif (($row->link_id ?? '') !== '') {
+                $lists[] = null;
+            }
         }
         [$entries, $newOfficialEnabled] = DomainList::fromNodeLists($lists);
         foreach ($entries as $e) {

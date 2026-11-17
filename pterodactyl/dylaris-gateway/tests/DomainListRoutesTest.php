@@ -130,4 +130,18 @@ class DomainListRoutesTest extends ExtensionTestCase
         $this->artisan('dylaris-gateway:sync-domains')->expectsOutputToContain('Domain sync failed, the stored list stays: down')->assertExitCode(1);
         $this->assertCount(1, $this->store()->domains());
     }
+
+    /** Review F3: while a sync holds the list's lock, the page's sync is skipped instead of running a second one. */
+    public function test_the_list_lock_holds_the_on_demand_sync_back(): void
+    {
+        $lock = \Illuminate\Support\Facades\Cache::lock(\Dylaris\GatewayPtero\ReconcileRunner::DOMAINS_LOCK, 120);
+        $this->assertTrue($lock->get());
+        try {
+            $this->asAdmin()->getJson(self::URL)->assertOk()->assertJsonPath('data.domains', []);
+            $this->assertSame([], $this->provider->calls);
+        } finally {
+            $lock->release();
+        }
+        $this->getJson(self::URL)->assertOk()->assertJsonPath('data.domains.0.domain', 'play.example.net');
+    }
 }

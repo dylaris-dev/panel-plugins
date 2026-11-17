@@ -28,10 +28,24 @@ final class DomainList
 
     public const STATE_VERIFIED = 'verified';
 
+    public const BUSY = 'The domain list is being updated, try again in a moment.';
+
+    /**
+     * @param (\Closure(callable, bool): mixed)|null $exclusive runs a list change alone, under the panel's cache lock:
+     *        ($f, true) waits for the lock (throwing ModeRefused(BUSY) when it does not come), ($f, false) returns null
+     *        at once while someone else holds it. Null runs everything directly (tests, a single process).
+     */
     public function __construct(
         private readonly ProviderClient $provider,
         private readonly StateStore $store,
+        private readonly ?\Closure $exclusive = null,
     ) {
+    }
+
+    /** One list change at a time: a sync and an admin's add, verify or remove never interleave their reads and writes. */
+    private function exclusive(callable $f, bool $wait = true): mixed
+    {
+        return $this->exclusive === null ? $f() : ($this->exclusive)($f, $wait);
     }
 
     /**
@@ -42,13 +56,20 @@ final class DomainList
      */
     public function sync(?int $now = null): array
     {
-        $now ??= time();
+        return $this->exclusive(fn () => $this->syncNow($now ?? time()));
+    }
+
+    /** @return DomainEntry[] */
+    private function syncNow(int $now): array
+    {
         $meta = $this->store->domainSync();
         try {
             $regions = $this->provider->regions();
             $own = $this->provider->customDomains();
         } catch (ProviderException $e) {
-            $this->store->putDomainSync(new DomainSync($meta->syncedAt, $now, $e->userMessage, $meta->newOfficialEnabled));
+            // A Retry-After longer than RETRY_AFTER moves the recorded attempt forward, so the on-demand sync waits it out.
+            $tried = $now + max(0, ($e->retryAfter ?? 0) - self::RETRY_AFTER);
+            $this->store->putDomainSync(new DomainSync($meta->syncedAt, $tried, $e->userMessage, $meta->newOfficialEnabled));
             throw $e;
         }
         $merged = self::merge($this->store->domains(), $regions, $own, $now, $meta->newOfficialEnabled);
@@ -62,7 +83,9 @@ final class DomainList
 
     /**
      * Syncs when the list is empty or older than MAX_AGE (a fresh install, a panel that was down), unless an on-demand
-     * attempt failed less than RETRY_AFTER ago. A failure keeps the stored list.
+     * attempt failed less than RETRY_AFTER ago (or the provider's longer Retry-After), the provider asked the
+     * reconcile to wait, or another request is syncing right now (single-flight: that one does it, this one uses the
+     * stored list). A failure keeps the stored list.
      */
     public function ensureFresh(?int $now = null): void
     {
@@ -72,10 +95,13 @@ final class DomainList
         if (!$stale || ($meta->triedAt !== null && $meta->triedAt > $now - self::RETRY_AFTER)) {
             return;
         }
+        if (Reconciler::busyUntil($this->store->all()) > $now) {
+            return;
+        }
         try {
-            $this->sync($now);
+            $this->exclusive(fn () => $this->syncNow($now), false);
         } catch (ProviderException) {
-            // Recorded by sync(); the stored list stays in use.
+            // Recorded by syncNow(); the stored list stays in use.
         }
     }
 
@@ -144,7 +170,10 @@ final class DomainList
                 continue;
             }
             $enabled = isset($old[$d]) ? $old[$d]->enabled : $newOfficialEnabled;
-            $out[$d] = new DomainEntry($d, DomainEntry::OFFICIAL, $enabled, $h->validation, self::regionOf($d, $regions->items), lastSeenAt: $now);
+            // A known region is sticky: Core lists a region only while one of its edges is registered, so a region
+            // missing from one answer must not make its domain "every region".
+            $region = self::regionOf($d, $regions->items) ?? ($old[$d] ?? null)?->region;
+            $out[$d] = new DomainEntry($d, DomainEntry::OFFICIAL, $enabled, $h->validation, $region, lastSeenAt: $now);
         }
         foreach ($own as $c) {
             if ($c->domain === '' || isset($out[$c->domain])) {
@@ -170,13 +199,14 @@ final class DomainList
 
     /**
      * The migration from per-node lists (0.1.x). A domain ticked on any node is kept, as official or own; one marked
-     * admins only on any node starts disabled. A node that never saved a list offered every official domain to its
-     * users, so if any node had none, every official domain starts enabled and new ones arrive enabled; otherwise the
-     * official domains no node ticked start disabled once the first sync brings them in.
+     * admins only on any node starts disabled, always: the explicit mark wins. A gateway node that never saved a list
+     * offered every official domain to its users, so if one exists, official domains new to the list arrive enabled;
+     * otherwise the official domains no node ticked start disabled once the first sync brings them in.
      *
      * Works on the stored JSON (domain, custom, admin_only, validation), so a migration can call it without the rest.
      *
-     * @param list<list<array<string,mixed>>|null> $lists one per panel node; null = that node never saved a list
+     * @param list<list<array<string,mixed>>|null> $lists one per gateway node (a node with a kit, or one that saved a
+     *        list); null = that node never saved a list. Panel nodes never set up for the gateway are not passed.
      * @return array{0: DomainEntry[], 1: bool} the entries, and DomainSync::$newOfficialEnabled
      */
     public static function fromNodeLists(array $lists): array
@@ -191,9 +221,6 @@ final class DomainList
                 }
                 $own = (bool) ($a['custom'] ?? false);
                 $enabled = ($out[$d]->enabled ?? true) && !((bool) ($a['admin_only'] ?? false));
-                if ($anyUnsaved && !$own) {
-                    $enabled = true;
-                }
                 $out[$d] = new DomainEntry($d, $own ? DomainEntry::OWN : DomainEntry::OFFICIAL, $enabled, $own ? '' : (string) ($a['validation'] ?? ''));
             }
         }
@@ -226,6 +253,11 @@ final class DomainList
      */
     public function addOwn(string $domain): DomainEntry
     {
+        return $this->exclusive(fn () => $this->addOwnNow($domain));
+    }
+
+    private function addOwnNow(string $domain): DomainEntry
+    {
         $domain = strtolower(rtrim(trim($domain), '.'));
         if (!preg_match('/^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/', $domain)) {
             throw new ModeRefused('Enter a domain name like play.example.com.');
@@ -246,6 +278,11 @@ final class DomainList
     /** Asks the provider to check the own domain's TXT record now. Returns the sentence for the admin. */
     public function verifyOwn(string $domain): string
     {
+        return $this->exclusive(fn () => $this->verifyOwnNow($domain));
+    }
+
+    private function verifyOwnNow(string $domain): string
+    {
         $e = $this->entry($domain);
         if (!$e->own() || $e->gone) {
             throw new ModeRefused('Only a listed own domain can be verified.');
@@ -258,7 +295,15 @@ final class DomainList
             $this->store->mergeDomains([$e->with(txtName: $c->txtName, txtValue: $c->txtValue)]);
             throw new ModeRefused("Publish the TXT record {$c->txtName} with the value {$c->txtValue} first, then verify.");
         }
-        $this->provider->verifyCustomDomain($e->domain);
+        try {
+            $this->provider->verifyCustomDomain($e->domain);
+        } catch (ProviderException $x) {
+            // Verified elsewhere meanwhile (the DYLARIS panel, Core's own re-check): the provider refuses a second
+            // verify. Its list says what is true; anything else is the refusal to show.
+            if ($x->status < 400 || $x->status >= 500 || $x->status === 429 || !$this->verifiedAtProvider($e->domain)) {
+                throw $x;
+            }
+        }
         $this->store->mergeDomains([$e->with(ownState: self::STATE_VERIFIED, lastSeenAt: time())]);
         return "{$e->domain} is verified. Users can pick it once it is enabled.";
     }
@@ -268,6 +313,21 @@ final class DomainList
      * uses it). An official domain can only be removed once the provider no longer lists it.
      */
     public function remove(string $domain): void
+    {
+        $this->exclusive(fn () => $this->removeNow($domain));
+    }
+
+    private function verifiedAtProvider(string $domain): bool
+    {
+        foreach ($this->provider->customDomains() as $c) {
+            if ($c->domain === $domain) {
+                return $c->verified();
+            }
+        }
+        return false;
+    }
+
+    private function removeNow(string $domain): void
     {
         $e = $this->entry($domain);
         if (!$e->own() && !$e->gone) {

@@ -61,6 +61,8 @@ final class ModeService
         private readonly ProviderClient $provider,
         private readonly PanelAdapter $panel,
         private readonly StateStore $store,
+        /** The panel's list, with its lock; null builds an unlocked one (tests). */
+        private readonly ?DomainList $domains = null,
     ) {
     }
 
@@ -202,7 +204,7 @@ final class ModeService
      */
     public function domainChoices(int $nodeId, bool $actorIsAdmin): array
     {
-        return (new DomainList($this->provider, $this->store))->choices($this->store->node($nodeId)?->region, $actorIsAdmin);
+        return ($this->domains ?? new DomainList($this->provider, $this->store))->choices($this->store->node($nodeId)?->region, $actorIsAdmin);
     }
 
     /**

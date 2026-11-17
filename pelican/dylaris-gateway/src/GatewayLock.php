@@ -2,8 +2,10 @@
 
 namespace Dylaris\GatewayPelican;
 
+use Dylaris\GatewayPanel\DomainList;
 use Dylaris\GatewayPanel\ModeRefused;
 use Dylaris\GatewayPanel\ModeService;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -39,6 +41,35 @@ final class GatewayLock
         } finally {
             $lock->release();
             Cache::forget(self::statusKey($serverId));
+        }
+    }
+
+    /** The domain list's own lock: a sync and an admin's add, verify or remove never interleave. */
+    public const DOMAINS_LOCK = 'dylaris-gateway-domains';
+
+    /** Outlives a sync (two provider calls of at most 30 s each). */
+    public const DOMAINS_SECONDS = 120;
+
+    /**
+     * DomainList's $exclusive: waits up to 45 s for the lock (refusing with DomainList::BUSY after that), or, without
+     * $wait, skips at once (returns null) while someone else holds it.
+     */
+    public static function domains(callable $f, bool $wait): mixed
+    {
+        $lock = Cache::lock(self::DOMAINS_LOCK, self::DOMAINS_SECONDS);
+        if ($wait) {
+            try {
+                $lock->block(45);
+            } catch (LockTimeoutException) {
+                throw new ModeRefused(DomainList::BUSY);
+            }
+        } elseif (!$lock->get()) {
+            return null;
+        }
+        try {
+            return $f();
+        } finally {
+            $lock->release();
         }
     }
 
