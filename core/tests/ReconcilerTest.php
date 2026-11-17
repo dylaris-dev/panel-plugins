@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace Dylaris\GatewayPanel\Tests;
 
 use Dylaris\GatewayPanel\Allocation;
-use Dylaris\GatewayPanel\AllowedDomain;
+use Dylaris\GatewayPanel\DomainEntry;
+use Dylaris\GatewayPanel\DomainSync;
 use Dylaris\GatewayPanel\Mode;
 use Dylaris\GatewayPanel\ModeService;
 use Dylaris\GatewayPanel\NodeState;
@@ -544,7 +545,8 @@ final class ReconcilerTest extends TestCase
 
     public function testARouteOnAnOwnDomainIsRecreatedAsAnOwnDomain(): void
     {
-        $this->store->putNode(new NodeState(1, 'link-1', 'e2e', self::ALL, '172.18.0.1', [new AllowedDomain('play.example.com', true)]));
+        $this->store->putDomains([new DomainEntry('play.example.com', DomainEntry::OWN, true, ownState: 'verified')]);
+        $this->store->putDomainSync(new DomainSync(time()));
         $this->modes->apply(7, Mode::Both, null, false, 'play.example.com');
         unset($this->provider->routes['play.example.com']);
         $this->clearCalls();

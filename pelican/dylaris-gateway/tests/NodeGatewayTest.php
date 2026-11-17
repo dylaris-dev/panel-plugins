@@ -2,7 +2,6 @@
 
 namespace Dylaris\GatewayPelican\Tests;
 
-use Dylaris\GatewayPanel\AllowedDomain;
 use Illuminate\Support\Facades\Cache;
 use App\Enums\TablerIcon;
 use App\Filament\Admin\Resources\Nodes\Pages\EditNode;
@@ -247,35 +246,14 @@ class NodeGatewayTest extends PluginTestCase
         $this->assertNull($this->store()->node($this->node->id)?->linkId);
     }
 
-    public function test_the_admin_picks_the_offered_domains_from_hoster_and_verified_own_domains(): void
+    /** 0.2.0: the per-node domain list is gone; the tab points to the panel-wide one. */
+    public function test_the_tab_has_no_domain_list_and_points_to_the_panel_wide_one(): void
     {
         $this->connected();
-        $this->provider->on('GET custom-domains', 200, ['items' => [
-            ['domain' => 'own.example.com', 'state' => 'verified'],
-            ['domain' => 'pending.example.com', 'state' => 'pending'],
-        ]]);
-
-        $tab = Livewire::test(NodeGateway::class, ['node' => $this->node])
-            ->assertSee('own.example.com (own domain)')
-            ->assertDontSee('pending.example.com')
-            ->assertSee('Add and verify own domains in the DYLARIS panel')
-            ->assertSee('https://panel.dylaris.com/nodes?tab=routes')
-            ->assertFormSet(['domains' => ['play.example.net'], 'admin_only' => []]);
-
-        $tab->fillForm(['domains' => ['play.example.net', 'own.example.com'], 'admin_only' => ['own.example.com']])
-            ->callAction('saveDomains')
-            ->assertNotified('Domains saved. Servers that already have an address keep it.');
-
-        $this->assertEquals([
-            new AllowedDomain('play.example.net', false, false, 'alphanumeric'),
-            new AllowedDomain('own.example.com', true, true),
-        ], $this->store()->node($this->node->id)->domains);
-        $this->assertSame(['eu', Mode::cases()], [$this->store()->node($this->node->id)->region, $this->store()->node($this->node->id)->allowedModes], 'the rest of the node row stays');
 
         Livewire::test(NodeGateway::class, ['node' => $this->node])
-            ->assertFormSet(['domains' => ['play.example.net', 'own.example.com'], 'admin_only' => ['own.example.com']])
-            ->fillForm(['domains' => []])
-            ->callAction('saveDomains')
-            ->assertNotified('Offer at least one domain.');
+            ->assertSee('under Gateway domains')
+            ->assertDontSee('Address domains')
+            ->assertActionDoesNotExist('saveDomains');
     }
 }

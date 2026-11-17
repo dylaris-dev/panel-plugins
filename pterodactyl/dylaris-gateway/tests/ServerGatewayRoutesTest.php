@@ -2,7 +2,8 @@
 
 namespace Dylaris\GatewayPteroTests;
 
-use Dylaris\GatewayPanel\AllowedDomain;
+use Dylaris\GatewayPanel\DomainEntry;
+use Dylaris\GatewayPanel\DomainSync;
 use Dylaris\GatewayPtero\ReconcileRunner;
 use Illuminate\Support\Facades\Cache;
 use Dylaris\GatewayPanel\Mode;
@@ -499,16 +500,20 @@ class ServerGatewayRoutesTest extends ExtensionTestCase
 
     public function test_the_domain_list_of_the_node_is_offered_and_admins_only_ones_are_hidden(): void
     {
-        $this->store()->putNode(new NodeState($this->server->node_id, 'link-1', 'eu', Mode::cases(), '172.18.0.1', [
-            new AllowedDomain('play.example.net', false, false, 'alphanumeric'),
-            new AllowedDomain('vip.example.com', true, true),
-            new AllowedDomain('own.example.com', true),
-        ]));
+        $this->store()->putNode(new NodeState($this->server->node_id, 'link-1', 'eu', Mode::cases(), '172.18.0.1'));
+        $this->store()->putDomains([
+            new DomainEntry('play.example.net', DomainEntry::OFFICIAL, true, 'alphanumeric', 'eu'),
+            new DomainEntry('us.example.net', DomainEntry::OFFICIAL, true, 'alphanumeric', 'us'),
+            new DomainEntry('own.example.com', DomainEntry::OWN, true, ownState: 'verified'),
+            new DomainEntry('pending.example.com', DomainEntry::OWN, true, ownState: 'pending'),
+            new DomainEntry('vip.example.com', DomainEntry::OWN, false, ownState: 'verified'),
+        ]);
+        $this->store()->putDomainSync(new DomainSync(time(), time()));
         $wings = new FakeDaemonServer();
         $this->asOwner();
 
         $this->getJson($this->url())->assertOk()->assertJsonPath('data.domains', [
-            ['value' => 'play.example.net', 'label' => 'play.example.net', 'custom' => false],
+            ['value' => 'play.example.net', 'label' => 'play.example.net (eu)', 'custom' => false],
             ['value' => 'own.example.com', 'label' => 'own.example.com (own domain, the whole address)', 'custom' => true],
         ]);
         $this->getJson($this->url())->assertJsonPath('data.no_domains', null);

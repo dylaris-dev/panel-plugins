@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Dylaris\GatewayPanel\Tests;
 
+use Dylaris\GatewayPanel\DomainSync;
 use Dylaris\GatewayPanel\NodeState;
 use Dylaris\GatewayPanel\ServerState;
 use Dylaris\GatewayPanel\StateStore;
@@ -48,5 +49,25 @@ final class CopyingStateStore implements StateStore
     public function putNode(NodeState $n): void
     {
         $this->inner->putNode($n);
+    }
+
+    public function domains(): array
+    {
+        return $this->inner->domains();
+    }
+
+    public function putDomains(array $domains): void
+    {
+        $this->inner->putDomains($domains);
+    }
+
+    public function domainSync(): DomainSync
+    {
+        return $this->inner->domainSync();
+    }
+
+    public function putDomainSync(DomainSync $s): void
+    {
+        $this->inner->putDomainSync($s);
     }
 }

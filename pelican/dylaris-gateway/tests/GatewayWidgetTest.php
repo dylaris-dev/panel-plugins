@@ -13,6 +13,8 @@ use App\Models\Subuser;
 use App\Models\User;
 use App\Repositories\Daemon\DaemonServerRepository;
 use Dylaris\GatewayPanel\AllowedDomain;
+use Dylaris\GatewayPanel\DomainEntry;
+use Dylaris\GatewayPanel\DomainSync;
 use Dylaris\GatewayPanel\Mode;
 use Dylaris\GatewayPanel\ModeService;
 use Dylaris\GatewayPanel\NodeState;
@@ -89,6 +91,20 @@ class GatewayWidgetTest extends PluginTestCase
     private function nodeConnected(array $allowed = [Mode::Direct, Mode::Both, Mode::GatewayOnly]): void
     {
         $this->store()->putNode(new NodeState($this->server->node_id, 'link-1', 'eu', $allowed, '172.18.0.1'));
+    }
+
+    /** The panel-wide list as the 0.1 node lists read: own domains verified, admins only = switched off. */
+    private function offer(AllowedDomain ...$domains): void
+    {
+        $this->store()->putDomains(array_map(fn (AllowedDomain $d) => new DomainEntry(
+            $d->domain,
+            $d->custom ? DomainEntry::OWN : DomainEntry::OFFICIAL,
+            !$d->adminOnly,
+            $d->validation,
+            $d->region,
+            $d->custom ? 'verified' : '',
+        ), $domains));
+        $this->store()->putDomainSync(new DomainSync(time(), time()));
     }
 
     private function inMode(Mode $mode, bool $bedrock = false): ServerState
@@ -232,11 +248,10 @@ class GatewayWidgetTest extends PluginTestCase
 
     public function test_the_domain_dropdown_lists_the_node_domains_and_hides_admins_only_ones(): void
     {
-        $this->store()->putNode(new NodeState($this->server->node_id, 'link-1', 'eu', Mode::cases(), '172.18.0.1', [
-            new AllowedDomain('play.example.net', false, false, 'alphanumeric'),
+        $this->store()->putNode(new NodeState($this->server->node_id, 'link-1', 'eu', Mode::cases(), '172.18.0.1'));
+        $this->offer(new AllowedDomain('play.example.net', false, false, 'alphanumeric'),
             new AllowedDomain('vip.example.com', true, true),
-            new AllowedDomain('own.example.com', true),
-        ]));
+            new AllowedDomain('own.example.com', true));
 
         $this->assertSame(['play.example.net' => 'play.example.net', 'own.example.com' => 'own.example.com (own domain, the whole address)'], $this->widget()->instance()->domainOptions());
 
@@ -246,20 +261,32 @@ class GatewayWidgetTest extends PluginTestCase
         $this->assertArrayHasKey('vip.example.com', $this->widget()->instance()->domainOptions());
     }
 
+    /** 0.2.0 list: the dropdown names the region and leaves out the domains of other regions and gone ones. */
+    public function test_the_dropdown_shows_the_region_and_only_the_nodes_region(): void
+    {
+        $this->nodeConnected();
+        $this->offer(
+            new AllowedDomain('play.example.net', false, false, 'alphanumeric', 'eu'),
+            new AllowedDomain('us.example.net', false, false, 'alphanumeric', 'us'),
+        );
+
+        $this->assertSame(['play.example.net' => 'play.example.net (eu)'], $this->widget()->instance()->domainOptions());
+    }
+
     /** Review 0.2.0: an admin's suggestion (on an admins-only domain) must not be served to the owner from the cache. */
     public function test_the_suggested_name_is_cached_per_admin_flag(): void
     {
-        $this->store()->putNode(new NodeState($this->server->node_id, 'link-1', 'eu', Mode::cases(), '172.18.0.1', [
-            new AllowedDomain('vip.example.net', false, true, 'letters'),
-            new AllowedDomain('play.example.net', false, false, 'dns'),
-        ]));
+        $this->store()->putNode(new NodeState($this->server->node_id, 'link-1', 'eu', Mode::cases(), '172.18.0.1'));
+        // The list is by name, so the admins-only domain comes first.
+        $this->offer(new AllowedDomain('admin.example.net', false, true, 'letters'),
+            new AllowedDomain('play.example.net', false, false, 'dns'));
         $this->server->update(['name' => 'Lobby 2']);
         $owner = $this->server->user;
 
         $admin = User::factory()->create();
         $admin->syncRoles(Role::getRootAdmin());
         $this->actingAs($admin);
-        $this->widget()->assertFormSet(['label' => 'lobby', 'domain' => 'vip.example.net']);
+        $this->widget()->assertFormSet(['label' => 'lobby', 'domain' => 'admin.example.net']);
 
         $this->actingAs($owner);
         $this->widget()->assertFormSet(['label' => 'lobby-2', 'domain' => 'play.example.net']);
@@ -267,7 +294,8 @@ class GatewayWidgetTest extends PluginTestCase
 
     public function test_only_admins_only_domains_leave_the_address_fields_out_and_say_so(): void
     {
-        $this->store()->putNode(new NodeState($this->server->node_id, 'link-1', 'eu', Mode::cases(), '172.18.0.1', [new AllowedDomain('vip.example.com', true, true)]));
+        $this->store()->putNode(new NodeState($this->server->node_id, 'link-1', 'eu', Mode::cases(), '172.18.0.1'));
+        $this->offer(new AllowedDomain('vip.example.com', true, true));
         $this->inMode(Mode::Both);
         $this->subuser('gateway.address');
 
@@ -276,10 +304,9 @@ class GatewayWidgetTest extends PluginTestCase
 
     public function test_an_own_domain_takes_no_label(): void
     {
-        $this->store()->putNode(new NodeState($this->server->node_id, 'link-1', 'eu', Mode::cases(), '172.18.0.1', [
-            new AllowedDomain('play.example.net', false, false, 'alphanumeric'),
-            new AllowedDomain('own.example.com', true),
-        ]));
+        $this->store()->putNode(new NodeState($this->server->node_id, 'link-1', 'eu', Mode::cases(), '172.18.0.1'));
+        $this->offer(new AllowedDomain('play.example.net', false, false, 'alphanumeric'),
+            new AllowedDomain('own.example.com', true));
 
         $this->widget()
             ->assertFormFieldIsVisible('label')

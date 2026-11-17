@@ -18,4 +18,18 @@ interface StateStore
     public function node(int $nodeId): ?NodeState;
 
     public function putNode(NodeState $n): void;
+
+    /** @return DomainEntry[] the panel-wide domain list, official domains first */
+    public function domains(): array;
+
+    /**
+     * Replaces the whole list: domains not in $domains are removed.
+     *
+     * @param DomainEntry[] $domains
+     */
+    public function putDomains(array $domains): void;
+
+    public function domainSync(): DomainSync;
+
+    public function putDomainSync(DomainSync $s): void;
 }

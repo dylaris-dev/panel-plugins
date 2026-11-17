@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Dylaris\GatewayPanel;
 
-use Dylaris\GatewayPanel\Provider\HosterDomain;
 use Dylaris\GatewayPanel\Provider\ProviderClient;
 use Dylaris\GatewayPanel\Provider\ProviderException;
 
@@ -32,8 +31,8 @@ final class ModeService
     /** A server that is already behind the gateway when its egg leaves the list keeps its route. */
     public const NO_LONGER_ALLOWED = 'The gateway supports Minecraft servers only. This server keeps its gateway address until an admin switches it to Direct.';
 
-    /** The address permission, but the node offers this user no domain (none saved, or admins only). */
-    public const NO_DOMAINS = "No domain on this node is offered to you, so the address cannot be chosen here. A panel admin chooses the domains on the node's Gateway tab.";
+    /** The address permission, but the node offers this user no domain (none of its region, or all admins only). */
+    public const NO_DOMAINS = 'No domain is offered to you on this node, so the address cannot be chosen here. A panel admin switches domains on in the gateway domain list.';
 
     public const IN_USE = 'That address is already in use on the gateway.';
 
@@ -196,18 +195,14 @@ final class ModeService
     }
 
     /**
-     * The domains the actor may pick for an address on this node: what the admin saved on the node's Gateway tab, the
-     * admins-only ones left out for everyone else. Never saved: every hoster domain the provider offers.
+     * The domains the actor may pick for an address on this node: the panel-wide list, filtered to the node's region
+     * (DomainList::offered()). Synced with the provider first when the list is empty or stale.
      *
      * @return AllowedDomain[]
      */
     public function domainChoices(int $nodeId, bool $actorIsAdmin): array
     {
-        $saved = $this->store->node($nodeId)?->domains;
-        if ($saved === null) {
-            return array_map(fn (HosterDomain $h) => new AllowedDomain($h->domain, false, false, $h->validation), $this->provider->regions()->hosterDomains);
-        }
-        return array_values(array_filter($saved, fn (AllowedDomain $d) => $actorIsAdmin || !$d->adminOnly));
+        return (new DomainList($this->provider, $this->store))->choices($this->store->node($nodeId)?->region, $actorIsAdmin);
     }
 
     /**

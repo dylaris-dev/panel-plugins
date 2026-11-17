@@ -2,7 +2,6 @@
 
 namespace Dylaris\GatewayPteroTests;
 
-use Dylaris\GatewayPanel\AllowedDomain;
 use Illuminate\Support\Facades\Cache;
 use Dylaris\GatewayPanel\Mode;
 use Dylaris\GatewayPanel\NodeState;
@@ -228,36 +227,16 @@ class NodeGatewayRoutesTest extends ExtensionTestCase
         $held->release();
     }
 
-    public function test_the_admin_saves_the_offered_domains_from_hoster_and_verified_own_domains(): void
+    /** 0.2.0: the per-node domain list is gone; the panel-wide list replaces it. */
+    public function test_the_node_tab_has_no_domain_list_any_more(): void
     {
-        $this->store()->putNode(new NodeState($this->node->id, 'link-1', 'eu', Mode::cases(), '172.18.0.1'));
+        $this->connected();
         $this->provider->on('GET link-kits', 200, ['items' => [['link_id' => 'link-1', 'online' => true]]]);
-        $this->provider->on('GET custom-domains', 200, ['items' => [
-            ['domain' => 'own.example.com', 'state' => 'verified'],
-            ['domain' => 'pending.example.com', 'state' => 'pending'],
-        ]]);
-        $base = '/api/admin/extensions/dylaris-gateway/nodes/' . $this->node->id;
-        $this->actingAs(User::factory()->create(['root_admin' => true]));
+        $this->asAdmin();
 
-        $this->getJson($base)->assertOk()
-            ->assertJsonPath('data.domain_options', [
-                ['value' => 'play.example.net', 'label' => 'play.example.net'],
-                ['value' => 'own.example.com', 'label' => 'own.example.com (own domain)'],
-            ])
-            ->assertJsonPath('data.domains', ['play.example.net'])
-            ->assertJsonPath('data.own_domains_url', 'https://panel.dylaris.com/nodes?tab=routes');
-
-        $this->putJson($base . '/domains', ['domains' => ['play.example.net', 'own.example.com', 'pending.example.com'], 'admin_only' => ['own.example.com']])->assertOk()
-            ->assertJsonPath('message', 'Domains saved. Servers that already have an address keep it.')
-            ->assertJsonPath('data.domains', ['play.example.net', 'own.example.com'])
-            ->assertJsonPath('data.admin_only', ['own.example.com']);
-        $this->assertEquals([
-            new AllowedDomain('play.example.net', false, false, 'alphanumeric'),
-            new AllowedDomain('own.example.com', true, true),
-        ], $this->store()->node($this->node->id)->domains, 'an unverified domain is never saved');
-
-        $this->putJson($base . '/domains', ['domains' => []])->assertStatus(422);
-        $this->putJson($base . '/modes', ['allowed_modes' => ['direct']])->assertOk();
-        $this->assertCount(2, $this->store()->node($this->node->id)->domains, 'saving the modes keeps the domains');
+        $data = $this->getJson($this->url())->assertOk()->json('data');
+        $this->assertArrayNotHasKey('domain_options', $data);
+        $this->assertArrayNotHasKey('domains', $data);
+        $this->assertContains($this->putJson($this->url('/domains'), ['domains' => ['play.example.net']])->status(), [404, 405]);
     }
 }

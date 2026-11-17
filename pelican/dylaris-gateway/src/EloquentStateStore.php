@@ -2,7 +2,8 @@
 
 namespace Dylaris\GatewayPelican;
 
-use Dylaris\GatewayPanel\AllowedDomain;
+use Dylaris\GatewayPanel\DomainEntry;
+use Dylaris\GatewayPanel\DomainSync;
 use Dylaris\GatewayPanel\Mode;
 use Dylaris\GatewayPanel\NodeState;
 use Dylaris\GatewayPanel\ServerState;
@@ -14,6 +15,10 @@ final class EloquentStateStore implements StateStore
     private const SERVERS = 'dylaris_gateway_servers';
 
     private const NODES = 'dylaris_gateway_nodes';
+
+    private const DOMAINS = 'dylaris_gateway_domains';
+
+    private const DOMAIN_SYNC = 'dylaris_gateway_domain_sync';
 
     public function get(int $serverId): ?ServerState
     {
@@ -86,8 +91,6 @@ final class EloquentStateStore implements StateStore
             $row->region,
             array_map(Mode::from(...), json_decode($row->allowed_modes, true, flags: JSON_THROW_ON_ERROR)),
             $row->target_host,
-            // Absent before the 2026_11_17 migration ran; null either way means never saved.
-            isset($row->domains) ? array_map(AllowedDomain::fromArray(...), json_decode($row->domains, true, flags: JSON_THROW_ON_ERROR)) : null,
         );
     }
 
@@ -98,7 +101,64 @@ final class EloquentStateStore implements StateStore
             'region' => $n->region,
             'allowed_modes' => json_encode(array_map(fn (Mode $m) => $m->value, $n->allowedModes), JSON_THROW_ON_ERROR),
             'target_host' => $n->targetHost,
-            'domains' => $n->domains === null ? null : json_encode(array_map(fn (AllowedDomain $d) => $d->toArray(), $n->domains), JSON_THROW_ON_ERROR),
+        ]);
+    }
+
+    public function domains(): array
+    {
+        return DB::table(self::DOMAINS)->get()->map(fn (object $r) => new DomainEntry(
+            (string) $r->domain,
+            (string) $r->source,
+            (bool) $r->enabled,
+            (string) $r->validation,
+            $r->region,
+            (string) $r->own_state,
+            (string) $r->txt_name,
+            (string) $r->txt_value,
+            $r->last_seen_at === null ? null : (int) $r->last_seen_at,
+            (bool) $r->gone,
+        ))->sortBy(fn (DomainEntry $e) => [$e->own() ? 1 : 0, $e->domain])->values()->all();
+    }
+
+    public function putDomains(array $domains): void
+    {
+        DB::transaction(function () use ($domains) {
+            DB::table(self::DOMAINS)->whereNotIn('domain', array_map(fn (DomainEntry $e) => $e->domain, $domains))->delete();
+            foreach ($domains as $e) {
+                DB::table(self::DOMAINS)->updateOrInsert(['domain' => $e->domain], [
+                    'source' => $e->source,
+                    'enabled' => $e->enabled,
+                    'validation' => $e->validation,
+                    'region' => $e->region,
+                    'own_state' => $e->ownState,
+                    'txt_name' => $e->txtName,
+                    'txt_value' => $e->txtValue,
+                    'last_seen_at' => $e->lastSeenAt,
+                    'gone' => $e->gone,
+                ]);
+            }
+        });
+    }
+
+    public function domainSync(): DomainSync
+    {
+        $r = DB::table(self::DOMAIN_SYNC)->where('id', 1)->first();
+
+        return $r === null ? new DomainSync() : new DomainSync(
+            $r->synced_at === null ? null : (int) $r->synced_at,
+            $r->tried_at === null ? null : (int) $r->tried_at,
+            $r->error,
+            (bool) $r->new_official_enabled,
+        );
+    }
+
+    public function putDomainSync(DomainSync $s): void
+    {
+        DB::table(self::DOMAIN_SYNC)->updateOrInsert(['id' => 1], [
+            'synced_at' => $s->syncedAt,
+            'tried_at' => $s->triedAt,
+            'error' => $s->error,
+            'new_official_enabled' => $s->newOfficialEnabled,
         ]);
     }
 

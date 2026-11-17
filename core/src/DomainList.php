@@ -1,0 +1,311 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Dylaris\GatewayPanel;
+
+use Dylaris\GatewayPanel\Provider\CustomDomain;
+use Dylaris\GatewayPanel\Provider\ProviderClient;
+use Dylaris\GatewayPanel\Provider\ProviderException;
+use Dylaris\GatewayPanel\Provider\Region;
+use Dylaris\GatewayPanel\Provider\Regions;
+
+/**
+ * The panel-wide list of address domains: the provider's official domains, which arrive through the API on their own,
+ * and the account's own domains, added and verified here. Each has a switch (enabled = users may pick it, disabled =
+ * admins only), and a node offers only the domains of its own region. Toggling or removing a domain never changes an
+ * existing address; it only decides what can be picked for a new address or a rename.
+ *
+ * No extends or implements on purpose: the migrations load this file on its own (fromNodeLists()).
+ */
+final class DomainList
+{
+    /** A list older than this is synced again at the point it is needed. */
+    public const MAX_AGE = 3600;
+
+    /** After a failed sync, the next on-demand attempt waits this long; the scheduled sync and Refresh do not. */
+    public const RETRY_AFTER = 300;
+
+    public const STATE_VERIFIED = 'verified';
+
+    public function __construct(
+        private readonly ProviderClient $provider,
+        private readonly StateStore $store,
+    ) {
+    }
+
+    /**
+     * Reads the provider's official and own domains and merges them into the stored list. A failure keeps the stored
+     * list, records why, and is re-thrown.
+     *
+     * @return DomainEntry[]
+     */
+    public function sync(?int $now = null): array
+    {
+        $now ??= time();
+        $meta = $this->store->domainSync();
+        try {
+            $regions = $this->provider->regions();
+            $own = $this->provider->customDomains();
+        } catch (ProviderException $e) {
+            $this->store->putDomainSync(new DomainSync($meta->syncedAt, $now, $e->userMessage, $meta->newOfficialEnabled));
+            throw $e;
+        }
+        // ponytail: read-merge-write without a lock; a toggle in the few ms between read and write is lost, a lock if that ever matters.
+        $merged = self::merge($this->store->domains(), $regions, $own, $now, $meta->newOfficialEnabled);
+        $this->store->putDomains($merged);
+        $this->store->putDomainSync(new DomainSync($now, $now, null, true));
+        return $merged;
+    }
+
+    /**
+     * Syncs when the list is empty or older than MAX_AGE (a fresh install, a panel that was down), unless an on-demand
+     * attempt failed less than RETRY_AFTER ago. A failure keeps the stored list.
+     */
+    public function ensureFresh(?int $now = null): void
+    {
+        $now ??= time();
+        $meta = $this->store->domainSync();
+        $stale = $meta->syncedAt === null || $meta->syncedAt < $now - self::MAX_AGE || $this->store->domains() === [];
+        if (!$stale || ($meta->triedAt !== null && $meta->triedAt > $now - self::RETRY_AFTER)) {
+            return;
+        }
+        try {
+            $this->sync($now);
+        } catch (ProviderException) {
+            // Recorded by sync(); the stored list stays in use.
+        }
+    }
+
+    /**
+     * What the actor may pick on a node of $region.
+     *
+     * @return AllowedDomain[]
+     */
+    public function choices(?string $region, bool $actorIsAdmin): array
+    {
+        $this->ensureFresh();
+        return self::offered($this->store->domains(), $region, $actorIsAdmin);
+    }
+
+    /**
+     * The rule behind choices(): usable domains of the node's region or of no region; users get the enabled ones only.
+     *
+     * @param DomainEntry[] $entries
+     * @return AllowedDomain[]
+     */
+    public static function offered(array $entries, ?string $region, bool $actorIsAdmin): array
+    {
+        $out = [];
+        foreach ($entries as $e) {
+            if ($e->usable() && ($e->enabled || $actorIsAdmin) && ($e->region === null || $e->region === $region)) {
+                $out[] = $e->choice();
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The region an official domain belongs to: the one whose wildcard is "*." + the domain. Null when none matches.
+     *
+     * @param Region[] $regions
+     */
+    public static function regionOf(string $domain, array $regions): ?string
+    {
+        foreach ($regions as $r) {
+            if (strtolower($r->wildcard) === '*.' . strtolower($domain) && $r->region !== '') {
+                return $r->region;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The stored list after a sync. Listed domains are refreshed and marked seen; a new official domain arrives with
+     * $newOfficialEnabled, a new own domain (added at the provider directly) arrives disabled. A stored domain the
+     * provider no longer lists stays, marked gone. The admin's switch is never changed.
+     *
+     * @param DomainEntry[] $stored
+     * @param CustomDomain[] $own
+     * @return DomainEntry[] official domains first, each group by name
+     */
+    public static function merge(array $stored, Regions $regions, array $own, int $now, bool $newOfficialEnabled = true): array
+    {
+        $old = [];
+        foreach ($stored as $e) {
+            $old[$e->domain] = $e;
+        }
+        $out = [];
+        foreach ($regions->hosterDomains as $h) {
+            $d = strtolower($h->domain);
+            if ($d === '') {
+                continue;
+            }
+            $enabled = isset($old[$d]) ? $old[$d]->enabled : $newOfficialEnabled;
+            $out[$d] = new DomainEntry($d, DomainEntry::OFFICIAL, $enabled, $h->validation, self::regionOf($d, $regions->items), lastSeenAt: $now);
+        }
+        foreach ($own as $c) {
+            if ($c->domain === '' || isset($out[$c->domain])) {
+                continue;
+            }
+            $prev = $old[$c->domain] ?? null;
+            $out[$c->domain] = new DomainEntry(
+                $c->domain,
+                DomainEntry::OWN,
+                $prev?->enabled ?? false,
+                ownState: $c->state,
+                // The list carries the record once a token exists; keep the one stored from the add otherwise.
+                txtName: $c->txtName !== '' ? $c->txtName : ($prev->txtName ?? ''),
+                txtValue: $c->txtValue !== '' ? $c->txtValue : ($prev->txtValue ?? ''),
+                lastSeenAt: $now,
+            );
+        }
+        foreach ($old as $d => $e) {
+            $out[$d] ??= $e->with(gone: true);
+        }
+        return self::sorted(array_values($out));
+    }
+
+    /**
+     * The migration from per-node lists (0.1.x). A domain ticked on any node is kept, as official or own; one marked
+     * admins only on any node starts disabled. A node that never saved a list offered every official domain to its
+     * users, so if any node had none, every official domain starts enabled and new ones arrive enabled; otherwise the
+     * official domains no node ticked start disabled once the first sync brings them in.
+     *
+     * Works on the stored JSON (domain, custom, admin_only, validation), so a migration can call it without the rest.
+     *
+     * @param list<list<array<string,mixed>>|null> $lists one per panel node; null = that node never saved a list
+     * @return array{0: DomainEntry[], 1: bool} the entries, and DomainSync::$newOfficialEnabled
+     */
+    public static function fromNodeLists(array $lists): array
+    {
+        $anyUnsaved = $lists === [] || in_array(null, $lists, true);
+        $out = [];
+        foreach ($lists as $list) {
+            foreach ($list ?? [] as $a) {
+                $d = strtolower(trim((string) ($a['domain'] ?? '')));
+                if ($d === '') {
+                    continue;
+                }
+                $own = (bool) ($a['custom'] ?? false);
+                $enabled = ($out[$d]->enabled ?? true) && !((bool) ($a['admin_only'] ?? false));
+                if ($anyUnsaved && !$own) {
+                    $enabled = true;
+                }
+                $out[$d] = new DomainEntry($d, $own ? DomainEntry::OWN : DomainEntry::OFFICIAL, $enabled, $own ? '' : (string) ($a['validation'] ?? ''));
+            }
+        }
+        return [self::sorted(array_values($out)), $anyUnsaved];
+    }
+
+    /**
+     * The sync command's one line, the same on both panels.
+     *
+     * @param DomainEntry[] $entries
+     */
+    public static function summary(array $entries): string
+    {
+        $n = ['official' => 0, 'own' => 0, 'gone' => 0, 'off' => 0];
+        foreach ($entries as $e) {
+            $n[$e->gone ? 'gone' : $e->source]++;
+            $n['off'] += $e->enabled || $e->gone ? 0 : 1;
+        }
+        return "Domains: {$n['official']} official, {$n['own']} own, {$n['gone']} no longer offered; {$n['off']} admins only.";
+    }
+
+    public function setEnabled(string $domain, bool $on): void
+    {
+        $e = $this->entry($domain);
+        $this->replace($e->with(enabled: $on));
+    }
+
+    /**
+     * Claims an own domain at the provider and lists it, enabled: it can be picked once verified. Returns the entry
+     * with the TXT record to publish.
+     */
+    public function addOwn(string $domain): DomainEntry
+    {
+        $domain = strtolower(rtrim(trim($domain), '.'));
+        if (!preg_match('/^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/', $domain)) {
+            throw new ModeRefused('Enter a domain name like play.example.com.');
+        }
+        foreach ($this->store->domains() as $e) {
+            if ($e->domain === $domain && !$e->gone) {
+                throw new ModeRefused("{$domain} is already in the list.");
+            }
+        }
+        $c = $this->provider->addCustomDomain($domain);
+        $entry = new DomainEntry($domain, DomainEntry::OWN, true, ownState: $c->state, txtName: $c->txtName, txtValue: $c->txtValue, lastSeenAt: time());
+        $this->replace($entry);
+        return $entry;
+    }
+
+    /** Asks the provider to check the own domain's TXT record now. Returns the sentence for the admin. */
+    public function verifyOwn(string $domain): string
+    {
+        $e = $this->entry($domain);
+        if (!$e->own() || $e->gone) {
+            throw new ModeRefused('Only a listed own domain can be verified.');
+        }
+        if ($e->ownState === self::STATE_VERIFIED) {
+            return "{$e->domain} is verified.";
+        }
+        if ($e->txtValue === '') {
+            $c = $this->provider->customDomainTxtToken($e->domain);
+            $this->replace($e->with(txtName: $c->txtName, txtValue: $c->txtValue));
+            throw new ModeRefused("Publish the TXT record {$c->txtName} with the value {$c->txtValue} first, then verify.");
+        }
+        $this->provider->verifyCustomDomain($e->domain);
+        $this->replace($e->with(ownState: self::STATE_VERIFIED, lastSeenAt: time()));
+        return "{$e->domain} is verified. Users can pick it once it is enabled.";
+    }
+
+    /**
+     * Removes a domain from the list. An own domain is released at the provider too (refused there while a route
+     * uses it). An official domain can only be removed once the provider no longer lists it.
+     */
+    public function remove(string $domain): void
+    {
+        $e = $this->entry($domain);
+        if (!$e->own() && !$e->gone) {
+            throw new ModeRefused('An official domain stays in the list while the provider offers it. Switch it off instead.');
+        }
+        if ($e->own() && !$e->gone) {
+            try {
+                $this->provider->deleteCustomDomain($e->domain);
+            } catch (ProviderException $x) {
+                if ($x->status !== 404) {
+                    throw $x;
+                }
+            }
+        }
+        $this->store->putDomains(array_values(array_filter($this->store->domains(), fn (DomainEntry $x) => $x->domain !== $e->domain)));
+    }
+
+    private function entry(string $domain): DomainEntry
+    {
+        $domain = strtolower(trim($domain));
+        foreach ($this->store->domains() as $e) {
+            if ($e->domain === $domain) {
+                return $e;
+            }
+        }
+        throw new ModeRefused('That domain is not in the list.');
+    }
+
+    private function replace(DomainEntry $entry): void
+    {
+        $rest = array_filter($this->store->domains(), fn (DomainEntry $x) => $x->domain !== $entry->domain);
+        $this->store->putDomains(self::sorted([...$rest, $entry]));
+    }
+
+    /**
+     * @param DomainEntry[] $entries
+     * @return DomainEntry[]
+     */
+    private static function sorted(array $entries): array
+    {
+        usort($entries, fn (DomainEntry $a, DomainEntry $b) => [$a->own(), $a->domain] <=> [$b->own(), $b->domain]);
+        return $entries;
+    }
+}

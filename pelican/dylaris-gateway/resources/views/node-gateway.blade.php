@@ -32,8 +32,8 @@
             {{ $this->form }}
 
             <div class="flex flex-wrap gap-3">
-                {{-- Rendering an action does not check visible(); without these checks all three always show. --}}
-                @foreach ([$this->connectAction, $this->saveModesAction, $this->saveDomainsAction, $this->disconnectAction] as $action)
+                {{-- Rendering an action does not check visible(); without these checks all of them always show. --}}
+                @foreach ([$this->connectAction, $this->saveModesAction, $this->disconnectAction] as $action)
                     @if ($action->isVisible())
                         {{ $action }}
                     @endif

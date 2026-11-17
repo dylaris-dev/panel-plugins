@@ -6,6 +6,8 @@ export default definePterodactylExtension({
     setup({ slots, screens, views }) {
         // The Gateway tab on the admin node page (manifest: area admin, parent admin.node).
         screens.register('node-gateway', () => import('./NodeGateway'));
+        // The panel-wide domain list, an admin screen of its own (manifest: area admin, no parent).
+        screens.register('gateway-domains', () => import('./DomainList'));
         // A screen of its own, gated by ext.dylaris-gateway.manage only (manifest); the Network page needs allocation.read.
         screens.register('server-gateway', () => import('./ServerGateway'));
         views.override('server.allocations', AllocationsLayer);

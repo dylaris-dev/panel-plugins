@@ -26,11 +26,6 @@ interface NodeState {
     notice: string | null;
     problem: string | null;
     servers: { name: string; mode: string; address: string; error: string | null }[];
-    domain_options: { value: string; label: string }[];
-    domains: string[];
-    admin_only: string[];
-    domains_help: string;
-    own_domains_url: string;
     snippet?: string;
 }
 
@@ -50,8 +45,6 @@ export default function NodeGateway() {
     const [region, setRegion] = useState('');
     const [target, setTarget] = useState('');
     const [modes, setModes] = useState<string[]>([]);
-    const [domains, setDomains] = useState<string[]>([]);
-    const [adminOnly, setAdminOnly] = useState<string[]>([]);
     const [busy, setBusy] = useState(false);
     const [confirm, setConfirm] = useState<'connect' | 'disconnect' | null>(null);
 
@@ -60,8 +53,6 @@ export default function NodeGateway() {
         setRegion(s.region ?? s.regions[0] ?? '');
         setTarget(s.target_host);
         setModes(s.allowed_modes);
-        setDomains(s.domains);
-        setAdminOnly(s.admin_only);
     }, []);
 
     useEffect(() => {
@@ -88,8 +79,6 @@ export default function NodeGateway() {
     const toggle = (set: (f: (current: string[]) => string[]) => void) => (value: string, on: boolean) =>
         set((current) => (on ? [...current, value] : current.filter((m) => m !== value)));
     const toggleMode = toggle(setModes);
-    const toggleDomain = toggle(setDomains);
-    const toggleAdminOnly = toggle(setAdminOnly);
 
     return (
         <div style={column}>
@@ -167,7 +156,9 @@ export default function NodeGateway() {
                             ))}
                         </div>
                         <p className='input-help'>
-                            The modes server owners may choose on this node. Admins can always choose any mode.
+                            The modes server owners may choose on this node. Admins can always choose any mode. The
+                            address domains are one list for the whole panel, under Gateway domains; this node offers
+                            those of its region.
                         </p>
                     </fieldset>
 
@@ -198,55 +189,6 @@ export default function NodeGateway() {
                     </div>
                 </div>
             </TitledGreyBox>
-
-            {state.domain_options.length > 0 && (
-                <TitledGreyBox title='Address domains'>
-                    <div style={column}>
-                        <p>
-                            {state.domains_help}{' '}
-                            <a href={state.own_domains_url} target='_blank' rel='noopener noreferrer' style={{ textDecoration: 'underline' }}>
-                                Add and verify own domains in the DYLARIS panel
-                            </a>{' '}
-                            (Nodes, Protected addresses, Your own domains).
-                        </p>
-                        <div style={column}>
-                            {state.domain_options.map((d) => (
-                                <div key={d.value} style={row}>
-                                    <label style={row}>
-                                        <Checkbox checked={domains.includes(d.value)} onChange={(on) => toggleDomain(d.value, on)} />
-                                        {d.label}
-                                    </label>
-                                    <label style={row}>
-                                        <Checkbox
-                                            checked={adminOnly.includes(d.value)}
-                                            disabled={!domains.includes(d.value)}
-                                            onChange={(on) => toggleAdminOnly(d.value, on)}
-                                        />
-                                        Admins only
-                                    </label>
-                                </div>
-                            ))}
-                        </div>
-                        <div>
-                            <Button
-                                isSecondary
-                                isLoading={busy}
-                                disabled={domains.length === 0}
-                                onClick={() =>
-                                    run(() =>
-                                        http.put(`${base}/domains`, {
-                                            domains,
-                                            admin_only: adminOnly.filter((d) => domains.includes(d)),
-                                        }),
-                                    )
-                                }
-                            >
-                                Save domains
-                            </Button>
-                        </div>
-                    </div>
-                </TitledGreyBox>
-            )}
 
             <TitledGreyBox title='Servers using the gateway'>
                 {state.servers.length === 0 ? (

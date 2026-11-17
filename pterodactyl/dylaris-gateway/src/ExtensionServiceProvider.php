@@ -2,6 +2,7 @@
 
 namespace Dylaris\GatewayPtero;
 
+use Dylaris\GatewayPanel\DomainList;
 use Dylaris\GatewayPanel\ModeService;
 use Dylaris\GatewayPanel\PanelAdapter;
 use Dylaris\GatewayPanel\Provider\ProviderClient;
@@ -9,6 +10,7 @@ use Dylaris\GatewayPanel\Reconciler;
 use Dylaris\GatewayPanel\StateStore;
 use Dylaris\GatewayPanel\StatusService;
 use Dylaris\GatewayPtero\Console\ReconcileCommand;
+use Dylaris\GatewayPtero\Console\SyncDomainsCommand;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Foundation\Application;
 use Pterodactyl\Events\Server\OperationCompleted;
@@ -40,6 +42,9 @@ class ExtensionServiceProvider extends ExtensionProvider
         $this->app->bind(Reconciler::class, fn (Application $app) => new Reconciler(
             $app->make(ProviderClient::class), $app->make(PanelAdapter::class), $app->make(StateStore::class),
         ));
+        $this->app->bind(DomainList::class, fn (Application $app) => new DomainList(
+            $app->make(ProviderClient::class), $app->make(StateStore::class),
+        ));
         $this->app->bind(StatusService::class, fn (Application $app) => new StatusService(
             $app->make(ProviderClient::class), $app->make(StateStore::class), $app->make(PanelAdapter::class),
         ));
@@ -47,9 +52,12 @@ class ExtensionServiceProvider extends ExtensionProvider
         $this->registerSettings(GatewaySettings::definition($this->settings()));
         // Become ext.dylaris-gateway.view, .mode and .address (Permissions); owners and root admins hold them implicitly.
         $this->registerPermissions('DYLARIS Gateway', Permissions::keys());
-        $this->registerCommands([ReconcileCommand::class]);
-        // The command goes through ReconcileRunner, whose lock already keeps two runs apart.
-        $this->registerSchedule(fn (Schedule $schedule) => $schedule->command('dylaris-gateway:reconcile')->everyFiveMinutes());
+        $this->registerCommands([ReconcileCommand::class, SyncDomainsCommand::class]);
+        // The reconcile goes through ReconcileRunner, whose lock already keeps two runs apart.
+        $this->registerSchedule(function (Schedule $schedule) {
+            $schedule->command('dylaris-gateway:reconcile')->everyFiveMinutes();
+            $schedule->command('dylaris-gateway:sync-domains')->hourly()->withoutOverlapping(10);
+        });
         // An extra trigger on top of the scheduled run. The event carries only uuids, and a full run is one route list read.
         // The panel runs these listeners synchronously in the request (CreateServer, RecordServerInstallResult), so the run
         // waits until the response is sent, and several operations in one request share one run.

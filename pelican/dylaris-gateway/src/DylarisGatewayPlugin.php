@@ -8,6 +8,7 @@ use App\Models\Egg;
 use Dylaris\GatewayPanel\Provider\Account;
 use Dylaris\GatewayPanel\Provider\ProviderClient;
 use Dylaris\GatewayPanel\Provider\ProviderException;
+use Dylaris\GatewayPelican\Filament\Admin\Pages\GatewayDomains;
 use Dylaris\GatewayPelican\Filament\Server\Pages\GatewayPage;
 use Filament\Actions\Action;
 use Filament\Contracts\Plugin;
@@ -31,6 +32,10 @@ class DylarisGatewayPlugin implements HasPluginSettings, Plugin
         // A page of its own in the server's navigation; the panel loads a plugin into every panel it has.
         if ($panel->getId() === 'server') {
             $panel->pages([GatewayPage::class]);
+        }
+        // The panel-wide domain list, next to the panel's own admin pages.
+        if ($panel->getId() === 'admin') {
+            $panel->pages([GatewayDomains::class]);
         }
     }
 

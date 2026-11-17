@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Dylaris\GatewayPanel\Testing;
 
+use Dylaris\GatewayPanel\DomainSync;
 use Dylaris\GatewayPanel\NodeState;
 use Dylaris\GatewayPanel\ServerState;
 use Dylaris\GatewayPanel\StateStore;
@@ -14,6 +15,9 @@ final class InMemoryStateStore implements StateStore
     private array $servers = [];
     /** @var array<int, NodeState> */
     private array $nodes = [];
+    /** @var \Dylaris\GatewayPanel\DomainEntry[] */
+    private array $domains = [];
+    private ?DomainSync $sync = null;
 
     public function get(int $serverId): ?ServerState
     {
@@ -43,5 +47,25 @@ final class InMemoryStateStore implements StateStore
     public function putNode(NodeState $n): void
     {
         $this->nodes[$n->nodeId] = $n;
+    }
+
+    public function domains(): array
+    {
+        return $this->domains;
+    }
+
+    public function putDomains(array $domains): void
+    {
+        $this->domains = array_values($domains);
+    }
+
+    public function domainSync(): DomainSync
+    {
+        return $this->sync ?? new DomainSync();
+    }
+
+    public function putDomainSync(DomainSync $s): void
+    {
+        $this->sync = $s;
     }
 }

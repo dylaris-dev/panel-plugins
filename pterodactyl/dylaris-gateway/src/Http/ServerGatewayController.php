@@ -215,8 +215,9 @@ final class ServerGatewayController
     }
 
     /**
-     * The domains the user may pick, from the node's list (no provider call) or, never saved, every hoster domain of
-     * the provider (kept 10 minutes). While the provider asked to wait, or when it fails, nothing is offered.
+     * The domains the user may pick: the panel-wide list for the node's region, a database read plus a provider sync
+     * only when the list is stale. Not cached, so a change to the list shows at once. While the provider asked to wait,
+     * or when it fails, nothing is offered.
      *
      * @return list<array{value: string, label: string, custom: bool}>
      */
@@ -225,21 +226,17 @@ final class ServerGatewayController
         if (Reconciler::busyUntil($this->store()->all()) > time()) {
             return [];
         }
-        $admin = $this->isAdmin($request);
         try {
-            $rows = Cache::remember(ReconcileRunner::domainsKey($server->node_id, $admin), 600, fn () => array_map(
-                fn (AllowedDomain $d) => $d->toArray(),
-                app(ModeService::class)->domainChoices($server->node_id, $admin),
-            ));
+            $choices = app(ModeService::class)->domainChoices($server->node_id, $this->isAdmin($request));
         } catch (\Throwable) {
             return [];
         }
 
-        return array_map(fn (array $d) => [
-            'value' => $d['domain'],
-            'label' => $d['custom'] ? "{$d['domain']} (own domain, the whole address)" : $d['domain'],
-            'custom' => $d['custom'],
-        ], $rows);
+        return array_map(function (AllowedDomain $d) {
+            $notes = array_filter([$d->region, $d->custom ? 'own domain, the whole address' : null, $d->adminOnly ? 'admins only' : null]);
+
+            return ['value' => $d->domain, 'label' => $d->domain . ($notes === [] ? '' : ' (' . implode(', ', $notes) . ')'), 'custom' => $d->custom];
+        }, $choices);
     }
 
     /**

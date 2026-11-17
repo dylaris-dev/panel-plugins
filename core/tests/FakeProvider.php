@@ -26,6 +26,10 @@ final class FakeProvider
     public array $players = [];
     /** @var array<string, Response> one-shot answers for a call, instead of the normal one */
     public array $failOn = [];
+    /** @var array<string, array<string,mixed>> own domain claims in wire format, keyed by domain */
+    public array $customDomains = [];
+    /** @var array<string,mixed>|null GET regions answer; null = the fixture */
+    public ?array $regions = null;
 
     public function client(): ProviderClient
     {
@@ -68,13 +72,40 @@ final class FakeProvider
             unset($this->routes[rawurldecode(substr($path, strlen('routes/')))]);
             return ['success' => true];
         }
+        if (str_starts_with($path, 'custom-domains')) {
+            return $this->customDomainAnswer($method, $path, $body);
+        }
         return match ("{$method} {$path}") {
             'GET routes' => ['items' => array_values($this->routes), 'success' => true],
             'GET link-kits' => ['items' => $this->kits, 'success' => true],
             'GET players' => ['items' => $this->players, 'success' => true],
-            'GET regions' => json_decode(file_get_contents(__DIR__ . '/fixtures/provider/regions.json'), true),
+            'GET regions' => $this->regions ?? json_decode(file_get_contents(__DIR__ . '/fixtures/provider/regions.json'), true),
             'GET check-domain' => ['available' => true, 'reason' => '', 'success' => true],
             default => ['success' => true],
         };
+    }
+
+    private function customDomainAnswer(string $method, string $path, mixed $body): array
+    {
+        if ($method === 'GET') {
+            return ['items' => array_values($this->customDomains), 'success' => true];
+        }
+        if ($method === 'POST' && $path === 'custom-domains') {
+            $d = $body['domain'];
+            $this->customDomains[$d] ??= ['domain' => $d, 'state' => 'pending', 'txtName' => "_dylaris-verify.{$d}", 'txtValue' => "token-{$d}"];
+            return ['domain' => $this->customDomains[$d], 'success' => true];
+        }
+        $parts = explode('/', $path);
+        $d = rawurldecode($parts[1]);
+        if ($method === 'DELETE') {
+            unset($this->customDomains[$d]);
+            return ['success' => true];
+        }
+        if (($parts[2] ?? '') === 'verify-txt') {
+            $this->customDomains[$d]['state'] = 'verified';
+            return ['success' => true, 'message' => "Ownership verified. You can add routes on {$d}."];
+        }
+        $this->customDomains[$d] += ['txtName' => "_dylaris-verify.{$d}", 'txtValue' => "token-{$d}"];
+        return ['domain' => $this->customDomains[$d], 'success' => true];
     }
 }

@@ -72,6 +72,30 @@ final class ProviderClient
         return array_map(CustomDomain::fromArray(...), $this->request('GET', 'custom-domains')['items'] ?? []);
     }
 
+    /** Claims an own domain; the answer carries the TXT record to publish. */
+    public function addCustomDomain(string $domain): CustomDomain
+    {
+        return CustomDomain::fromArray($this->request('POST', 'custom-domains', ['domain' => $domain])['domain'] ?? []);
+    }
+
+    /** The own domain's TXT record, minted once. */
+    public function customDomainTxtToken(string $domain): CustomDomain
+    {
+        return CustomDomain::fromArray($this->request('POST', 'custom-domains/' . rawurlencode($domain) . '/txt-token')['domain'] ?? []);
+    }
+
+    /** Checks the published TXT record now. A record not found yet is a 409 with the provider's sentence. */
+    public function verifyCustomDomain(string $domain): void
+    {
+        $this->request('POST', 'custom-domains/' . rawurlencode($domain) . '/verify-txt');
+    }
+
+    /** Releases the claim; the provider refuses while a route uses the domain. */
+    public function deleteCustomDomain(string $domain): void
+    {
+        $this->request('DELETE', 'custom-domains/' . rawurlencode($domain));
+    }
+
     public function deleteRoute(string $domain): void
     {
         $this->request('DELETE', 'routes/' . rawurlencode($domain));

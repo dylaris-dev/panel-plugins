@@ -54,6 +54,9 @@ class GatewayWidget extends Widget implements HasActions, HasSchemas
 
     public ?string $statusLine = null;
 
+    /** @var AllowedDomain[]|null domainChoices() of this request; private, so Livewire never carries it to the next one */
+    private ?array $choicesThisRequest = null;
+
     public function mount(): void
     {
         $this->authorizeView();
@@ -90,7 +93,7 @@ class GatewayWidget extends Widget implements HasActions, HasSchemas
                 ->selectablePlaceholder(false)
                 ->live()
                 ->visible(fn () => $this->addressEditable())
-                ->helperText('The domains this node offers, set by the panel admin on the node\'s Gateway tab.'),
+                ->helperText('The domains this node offers, set by the panel admin in the gateway domain list.'),
             TextInput::make('label')
                 ->label('Address name')
                 ->maxLength(63)
@@ -287,7 +290,8 @@ class GatewayWidget extends Widget implements HasActions, HasSchemas
     {
         $out = [];
         foreach ($this->domainChoices() as $d) {
-            $out[$d->domain] = $d->custom ? "{$d->domain} (own domain, the whole address)" : $d->domain;
+            $notes = array_filter([$d->region, $d->custom ? 'own domain, the whole address' : null, $d->adminOnly ? 'admins only' : null]);
+            $out[$d->domain] = $d->domain . ($notes === [] ? '' : ' (' . implode(', ', $notes) . ')');
         }
 
         return $out;
@@ -398,8 +402,8 @@ class GatewayWidget extends Widget implements HasActions, HasSchemas
     }
 
     /**
-     * The node's saved list needs no provider call; the default (every hoster domain) does, so it is kept for 10
-     * minutes. A failed read offers nothing and apply() says why.
+     * The panel-wide list, read once per request: a database read, plus a provider sync only when the list is stale. Not
+     * cached across requests, so a change to the list shows at once. A failed read offers nothing and apply() says why.
      *
      * @return AllowedDomain[]
      */
@@ -410,15 +414,10 @@ class GatewayWidget extends Widget implements HasActions, HasSchemas
             return [];
         }
         try {
-            $rows = Cache::remember(GatewayLock::domainsKey($this->server->node_id, $this->actorIsAdmin()), 600, fn () => array_map(
-                fn (AllowedDomain $d) => $d->toArray(),
-                app(ModeService::class)->domainChoices($this->server->node_id, $this->actorIsAdmin()),
-            ));
+            return $this->choicesThisRequest ??= app(ModeService::class)->domainChoices($this->server->node_id, $this->actorIsAdmin());
         } catch (\Throwable) {
             return [];
         }
-
-        return array_map(AllowedDomain::fromArray(...), $rows);
     }
 
     private function chosenDomain(): ?AllowedDomain

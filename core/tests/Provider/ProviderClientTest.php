@@ -235,5 +235,40 @@ final class ProviderClientTest extends TestCase
         $this->assertSame('/api/external/gateway/custom-domains', $this->history[0]['request']->getUri()->getPath());
         $this->assertSame(['play.example.com', 'new.example.com'], array_map(fn ($d) => $d->domain, $domains));
         $this->assertSame([true, false], array_map(fn ($d) => $d->verified(), $domains));
+        $this->assertSame(['', '_dylaris-verify.new.example.com'], array_map(fn ($d) => $d->txtName, $domains));
+    }
+
+    /** Shapes as Core's custom_domains.go answers them on the external API (Add and IssueTXTToken: {"domain": view}). */
+    public function testOwnDomainCallsUseTheDocumentedPathsAndShapes(): void
+    {
+        $view = '{"success":true,"domain":{"domain":"play.example.com","state":"pending","attempts":0,"txtName":"_dylaris-verify.play.example.com","txtValue":"tok"}}';
+        $c = $this->client(new Response(200, [], $view), new Response(200, [], $view), $this->ok(), $this->ok());
+
+        $added = $c->addCustomDomain('play.example.com');
+        $token = $c->customDomainTxtToken('play.example.com');
+        $c->verifyCustomDomain('play.example.com');
+        $c->deleteCustomDomain('play.example.com');
+
+        $this->assertSame(['pending', '_dylaris-verify.play.example.com', 'tok'], [$added->state, $added->txtName, $added->txtValue]);
+        $this->assertSame('tok', $token->txtValue);
+        $this->assertSame([
+            'POST /api/external/gateway/custom-domains',
+            'POST /api/external/gateway/custom-domains/play.example.com/txt-token',
+            'POST /api/external/gateway/custom-domains/play.example.com/verify-txt',
+            'DELETE /api/external/gateway/custom-domains/play.example.com',
+        ], array_map(fn ($h) => $h['request']->getMethod() . ' ' . $h['request']->getUri()->getPath(), $this->history));
+        $this->assertSame('{"domain":"play.example.com"}', (string) $this->history[0]['request']->getBody());
+    }
+
+    public function testAVerifyWithoutTheRecordCarriesTheProviderSentence(): void
+    {
+        $c = $this->client(new Response(409, [], '{"success":false,"error":"The TXT record was not found yet. DNS changes can take a few minutes to publish."}'));
+        try {
+            $c->verifyCustomDomain('play.example.com');
+            $this->fail('expected ProviderException');
+        } catch (ProviderException $e) {
+            $this->assertSame(409, $e->status);
+            $this->assertStringStartsWith('The TXT record was not found yet.', $e->userMessage);
+        }
     }
 }

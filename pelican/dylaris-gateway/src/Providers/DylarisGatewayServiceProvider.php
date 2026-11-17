@@ -6,6 +6,7 @@ use App\Enums\TabPosition;
 use App\Filament\Admin\Resources\Nodes\Pages\EditNode;
 use App\Models\Node;
 use Composer\Autoload\ClassLoader;
+use Dylaris\GatewayPanel\DomainList;
 use Dylaris\GatewayPanel\ModeService;
 use Dylaris\GatewayPanel\PanelAdapter;
 use Dylaris\GatewayPanel\Provider\ProviderClient;
@@ -13,6 +14,7 @@ use Dylaris\GatewayPanel\Reconciler;
 use Dylaris\GatewayPanel\StateStore;
 use Dylaris\GatewayPanel\StatusService;
 use Dylaris\GatewayPelican\Console\ReconcileCommand;
+use Dylaris\GatewayPelican\Console\SyncDomainsCommand;
 use Dylaris\GatewayPelican\EloquentStateStore;
 use Dylaris\GatewayPelican\Filament\Server\Widgets\GatewayWidget;
 use Dylaris\GatewayPelican\GatewaySettings;
@@ -54,6 +56,9 @@ class DylarisGatewayServiceProvider extends ServiceProvider
         $this->app->bind(Reconciler::class, fn (Application $app) => new Reconciler(
             $app->make(ProviderClient::class), $app->make(PanelAdapter::class), $app->make(StateStore::class),
         ));
+        $this->app->bind(DomainList::class, fn (Application $app) => new DomainList(
+            $app->make(ProviderClient::class), $app->make(StateStore::class),
+        ));
         $this->app->bind(StatusService::class, fn (Application $app) => new StatusService(
             $app->make(ProviderClient::class), $app->make(StateStore::class), $app->make(PanelAdapter::class),
         ));
@@ -79,10 +84,11 @@ class DylarisGatewayServiceProvider extends ServiceProvider
                 ->schema([LivewireComponent::make(NodeGateway::class, fn (Node $record) => ['node' => $record])->lazyLoaded()->columnSpanFull()]));
         }
 
-        $this->commands([ReconcileCommand::class]);
+        $this->commands([ReconcileCommand::class, SyncDomainsCommand::class]);
         $this->callAfterResolving(Schedule::class, function (Schedule $schedule) {
             // The lock expires after 10 minutes, not the default 24 h, so a crashed run cannot stop reconciling for a day.
             $schedule->command(ReconcileCommand::class)->everyFiveMinutes()->withoutOverlapping(10);
+            $schedule->command(SyncDomainsCommand::class)->hourly()->withoutOverlapping(10);
         });
     }
 

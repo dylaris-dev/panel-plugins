@@ -139,13 +139,13 @@ final readonly class DomainCheck
 
 final readonly class CustomDomain
 {
-    public function __construct(public string $domain, public string $state)
+    public function __construct(public string $domain, public string $state, public string $txtName = '', public string $txtValue = '')
     {
     }
 
     public static function fromArray(array $a): self
     {
-        return new self(strtolower((string) ($a['domain'] ?? '')), (string) ($a['state'] ?? ''));
+        return new self(strtolower((string) ($a['domain'] ?? '')), (string) ($a['state'] ?? ''), (string) ($a['txtName'] ?? ''), (string) ($a['txtValue'] ?? ''));
     }
 
     public function verified(): bool
