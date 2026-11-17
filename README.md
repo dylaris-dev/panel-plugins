@@ -12,6 +12,10 @@ They are for hosters on Pelican or Pterodactyl 2.0 who want their game servers r
 (or as well as) the node's public IP. Want to connect a different panel or your own hosting system? See
 [docs/integration-guide.md](docs/integration-guide.md).
 
+**No open ports, no SRV records, no node IP in your server list.** Players join a plain address like
+`survival.eu.dylaris.com` on the default port. It points at the DYLARIS edge network; a small link container on each
+Wings node opens an outbound tunnel to the edges, so nothing has to listen on the internet for the game.
+
 ## What you get
 
 - **Players connect to the edge, not to your node.** The gateway address resolves to the DYLARIS edge, and your node
@@ -92,6 +96,10 @@ The plugin never restarts a server and never edits server files; it says when a 
 - The link container on the node pulls `ghcr.io/dylaris-dev/gateway-link` and talks to the provider and the edge. The
   link key is in the compose file only: the panel does not store it, so keep that file private (mode 600).
 - **No telemetry.** The plugins make no other outbound calls.
+- **Only player traffic goes through the gateway:** Java, Bedrock (through the edge's Geyser bridge) and, where
+  switched on, voice chat. The panel still talks to Wings directly (its API port), and SFTP still connects to the node.
+  Anyone with panel or SFTP access can therefore see the node's address; the gateway hides it from players, not from
+  your panel users.
 - Report a security issue privately through the repository's GitHub security advisories, not in a public issue.
 
 ## Known limitations
