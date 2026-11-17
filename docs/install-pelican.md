@@ -22,7 +22,7 @@ needs PHP 8.4, which Pelican rc.3 requires anyway.
 
 ## Download
 
-Download `dylaris-gateway-<version>.zip` and `SHA256SUMS` from the latest release on
+Download `dylaris-gateway-pelican-<version>.zip` and `SHA256SUMS` from the latest release on
 [GitHub Releases](https://github.com/dylaris-dev/panel-plugins/releases), into the panel directory, and check the file
 before you install it:
 
@@ -30,12 +30,12 @@ before you install it:
 sha256sum --ignore-missing -c SHA256SUMS
 ```
 
-It must print `dylaris-gateway-<version>.zip: OK`. Without `sha256sum`, compare the output of
+It must print `dylaris-gateway-pelican-<version>.zip: OK`. Without `sha256sum`, compare the output of
 `shasum -a 256 <file>` (macOS) or `Get-FileHash <file>` (Windows PowerShell) with the file's line in `SHA256SUMS`.
 
 ## Install
 
-1. Unzip `dylaris-gateway-<version>.zip` into the panel's `plugins/` folder, so that `plugins/dylaris-gateway/plugin.json`
+1. Unzip `dylaris-gateway-pelican-<version>.zip` into the panel's `plugins/` folder, so that `plugins/dylaris-gateway/plugin.json`
    exists.
 2. Run `php artisan p:plugin:install dylaris-gateway` from the panel directory. It prints `Plugin installed and enabled.`
 3. Pelican keeps a plugin's status in `plugin.json`. Overwriting the folder with a fresh copy resets the status to not

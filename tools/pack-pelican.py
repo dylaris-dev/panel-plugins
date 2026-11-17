@@ -1,4 +1,4 @@
-"""Zips the Pelican plugin into dist/dylaris-gateway-<version>.zip, folder dylaris-gateway/ at the root of the archive.
+"""Zips the Pelican plugin into dist/dylaris-gateway-pelican-<version>.zip, folder dylaris-gateway/ at the root of the archive.
 
 Run tools/build-plugins.sh first (core-src/ must exist). tests/ is not shipped. The PteroExt is made by tools/pack-ptero.sh.
 """
@@ -12,7 +12,7 @@ src = root / "pelican" / "dylaris-gateway"
 if not (src / "core-src").is_dir():
     sys.exit("core-src/ is missing: run tools/build-plugins.sh first.")
 version = json.loads((src / "plugin.json").read_text(encoding="utf-8"))["version"]
-out = root / "dist" / f"dylaris-gateway-{version}.zip"
+out = root / "dist" / f"dylaris-gateway-pelican-{version}.zip"
 out.parent.mkdir(exist_ok=True)
 with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
     for f in sorted(src.rglob("*")):

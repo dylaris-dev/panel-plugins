@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Packs the Pterodactyl extension into dist/dylaris-gateway-<version>.pteroext with the panel's own p:extension:pack, in the
+# Packs the Pterodactyl extension into dist/dylaris-gateway-pterodactyl-<version>.pteroext with the panel's own p:extension:pack, in the
 # checkout volume dylaris-ptero-b2 (tools/ptero-checkout.sh). Builds core-src and the UI first.
 set -euo pipefail
 export MSYS_NO_PATHCONV=1 # Git Bash would rewrite /app paths passed to wsl.exe
@@ -25,5 +25,5 @@ docker_ run --rm -v dylaris-ptero-b2:/app -v "$(host_path "$ROOT/pterodactyl/dyl
   [ ! -d extensions/dylaris-gateway ] || mv extensions/dylaris-gateway "/tmp/old-ext-$$"
   cp -r /extension extensions/dylaris-gateway
   version=$(php -r "echo json_decode(file_get_contents(\"extensions/dylaris-gateway/extension.json\"), true)[\"version\"];")
-  php artisan p:extension:pack extensions/dylaris-gateway --output="/out/dylaris-gateway-$version.pteroext" --force
+  php artisan p:extension:pack extensions/dylaris-gateway --output="/out/dylaris-gateway-pterodactyl-$version.pteroext" --force
 '

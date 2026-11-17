@@ -44,12 +44,12 @@ They are for hosters on Pelican or Pterodactyl 2.0 who want their game servers r
 ## Quick start
 
 1. Download from [GitHub Releases](https://github.com/dylaris-dev/panel-plugins/releases):
-   `dylaris-gateway-<version>.zip` for Pelican or `dylaris-gateway-<version>.pteroext` for Pterodactyl 2.0, plus
+   `dylaris-gateway-pelican-<version>.zip` for Pelican or `dylaris-gateway-pterodactyl-<version>.pteroext` for Pterodactyl 2.0, plus
    `SHA256SUMS`. Check it with `sha256sum --ignore-missing -c SHA256SUMS`.
 2. Install it.
    - Pelican: unzip into `plugins/`, then `php artisan p:plugin:install dylaris-gateway`.
      Full guide: [docs/install-pelican.md](docs/install-pelican.md).
-   - Pterodactyl 2.0: `php artisan p:extension:install dylaris-gateway-<version>.pteroext --enable`.
+   - Pterodactyl 2.0: `php artisan p:extension:install dylaris-gateway-pterodactyl-<version>.pteroext --enable`.
      Full guide: [docs/install-pterodactyl.md](docs/install-pterodactyl.md).
 3. In the admin area, enter the provider URL (`https://panel.dylaris.com`) and the API key, and run the connection test.
 4. On a node's **Gateway** tab, pick a region and connect. Copy the Docker Compose snippet shown once to the node and run
@@ -134,8 +134,8 @@ Build the release files:
 bash tools/build-release.sh   # both packages plus dist/SHA256SUMS
 ```
 
-That runs `tools/build-plugins.sh` (copies the core), `tools/pack-pelican.py` (`dist/dylaris-gateway-<version>.zip`)
-and `tools/pack-ptero.sh` (`dist/dylaris-gateway-<version>.pteroext`, packed with the panel's own `p:extension:pack`
+That runs `tools/build-plugins.sh` (copies the core), `tools/pack-pelican.py` (`dist/dylaris-gateway-pelican-<version>.zip`)
+and `tools/pack-ptero.sh` (`dist/dylaris-gateway-pterodactyl-<version>.pteroext`, packed with the panel's own `p:extension:pack`
 after `tools/build-ptero-ui.sh` built the UI against the panel's SDK). The version comes from
 `pelican/dylaris-gateway/plugin.json` and `pterodactyl/dylaris-gateway/extension.json`.
 

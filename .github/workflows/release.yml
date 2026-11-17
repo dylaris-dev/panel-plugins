@@ -34,9 +34,11 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           version="${TAG#v}"
-          test -f "dist/dylaris-gateway-$version.zip"
-          test -f "dist/dylaris-gateway-$version.pteroext"
+          test -f "dist/dylaris-gateway-pelican-$version.zip"
+          test -f "dist/dylaris-gateway-pterodactyl-$version.pteroext"
           test -f dist/SHA256SUMS
+          # The release job has no checkout, so the notes travel in the artifact.
+          sed "s/{{VERSION}}/$version/g" .github/release-notes.md > dist/release-notes.md
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: packages
@@ -62,6 +64,5 @@ jobs:
           version="${TAG#v}"
           cd dist
           sha256sum -c SHA256SUMS
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" \
-            --notes "DYLARIS Gateway $version. Pelican: dylaris-gateway-$version.zip. Pterodactyl 2.0: dylaris-gateway-$version.pteroext. Check the files with: sha256sum -c SHA256SUMS. Changes: see CHANGELOG.md." \
-            "dylaris-gateway-$version.zip" "dylaris-gateway-$version.pteroext" SHA256SUMS
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --notes-file release-notes.md \
+            "dylaris-gateway-pelican-$version.zip" "dylaris-gateway-pterodactyl-$version.pteroext" SHA256SUMS

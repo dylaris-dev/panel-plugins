@@ -23,7 +23,7 @@ extension requires panel `^2.0.0-beta.2`, SDK `^2.0.0-beta.6` and PHP 8.4. For P
 
 ## Download
 
-Download `dylaris-gateway-<version>.pteroext` and `SHA256SUMS` from the latest release on
+Download `dylaris-gateway-pterodactyl-<version>.pteroext` and `SHA256SUMS` from the latest release on
 [GitHub Releases](https://github.com/dylaris-dev/panel-plugins/releases), into the panel directory, and check the file
 before you install it:
 
@@ -31,7 +31,7 @@ before you install it:
 sha256sum --ignore-missing -c SHA256SUMS
 ```
 
-It must print `dylaris-gateway-<version>.pteroext: OK`. Without `sha256sum`, compare the output of
+It must print `dylaris-gateway-pterodactyl-<version>.pteroext: OK`. Without `sha256sum`, compare the output of
 `shasum -a 256 <file>` (macOS) or `Get-FileHash <file>` (Windows PowerShell) with the file's line in `SHA256SUMS`.
 
 ## Install
@@ -39,7 +39,7 @@ It must print `dylaris-gateway-<version>.pteroext: OK`. Without `sha256sum`, com
 From the panel directory:
 
 ```
-php artisan p:extension:install dylaris-gateway-<version>.pteroext --enable
+php artisan p:extension:install dylaris-gateway-pterodactyl-<version>.pteroext --enable
 ```
 
 It prints `Installed DYLARIS Gateway (dylaris-gateway) v<version> - enabled.` To update, install the new file with
