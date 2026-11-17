@@ -78,21 +78,38 @@ Admin area, Nodes, pick the node, Gateway tab.
 5. **Allowed modes** limits what servers on this node may use (Direct, Both, Gateway only). Panel admins can always pick
    every mode.
 
-6. **Address domains** lists the domains users may pick for a server's address on this node: the provider's hoster
-   domains (for example `eu.dylaris.com`) and the account's **verified** own domains. Tick the ones to offer, tick
-   **Admins only** for those only panel admins may pick, and Save domains. Until you save, every hoster domain is
-   offered. Servers that are behind the gateway keep their address. A Direct server whose remembered address is on a
-   domain no longer offered to the user switching it (removed, or now admins only) cannot switch back with it:
-   `The address <name> is no longer offered on this node. Someone with the address permission has to choose a new one
-   first.`
-   - A hoster domain takes a name in front of it: `survival.eu.dylaris.com`.
-   - An own domain is the **whole address** (`play.example.com`). The provider verifies each exact name (a `CNAME` to
-     the region and a TXT record on `_dylaris-verify.<name>`), so a name in front of a verified domain would be a
-     different, unverified name. To offer several addresses on your own domain, verify each name. Own domains are added
-     and verified in the DYLARIS panel (Nodes, Protected addresses, Your own domains); the tab links there and lists
-     only verified ones. Your plan's own-domain limit applies.
+6. The address domains are no longer set per node: see [Address domains](#address-domains).
 
 Disconnect node revokes the node's link kit.
+
+## Address domains
+
+Admin area, Advanced, **Gateway domains**. One list for the whole panel: the domains users pick from for a server's gateway address.
+
+- **Official domains** are DYLARIS' hoster domains (for example `eu.dylaris.com`). They arrive on their own: the list
+  syncs every hour (`dylaris-gateway:sync-domains`), when it is empty or older than an hour at the moment it is needed,
+  and when you click **Refresh**. A new official domain arrives switched on. An official domain DYLARIS no longer lists
+  stays in the list as `No longer offered`, cannot be picked, and can be removed; addresses under it are left alone.
+  A failed sync keeps the last list and says when it last succeeded.
+- **Region.** Each official domain belongs to the region whose wildcard is `*.` plus the domain (`*.eu.dylaris.com` is
+  region `eu-central`). A node offers the domains of its own region and those without a region (own domains, and an
+  official domain no region matches). The region is shown next to each domain, here and in the address dropdown.
+- **The switch.** On: users may pick the domain. Off: panel admins only. Switching never changes an existing address; it
+  only decides what can be picked for a new address or a rename. A Direct server whose remembered address is on a
+  domain no longer offered to the user switching it cannot switch back with it: `The address <name> is no longer
+  offered on this node. Someone with the address permission has to choose a new one first.`
+- **Own domains.** Add own domain, enter the name (`play.example.com`). The plugin claims it at DYLARIS and shows the TXT
+  record (`_dylaris-verify.<name>` and its value). Publish it, then click **Verify**. Only a verified own domain can be
+  picked. Players reach it once it also has a `CNAME` to the gateway region, as for any own domain. An own domain is
+  the **whole address**: the provider verifies each exact name, so a name in front of it would be a different,
+  unverified one; to offer several addresses, add each name. Remove releases the claim at DYLARIS, which DYLARIS refuses
+  while a route still uses it. Your plan's own-domain limit applies. Own domains added in the DYLARIS panel directly
+  show up with the next sync, switched off.
+- A hoster domain takes a name in front of it: `survival.eu.dylaris.com`.
+
+Updating from 0.1.x moves the per-node lists into this list: a domain ticked on any node is kept, one marked Admins
+only on any node is switched off. If any node never saved a list (it offered every official domain), every official
+domain is switched on; otherwise the official domains no node ticked start switched off.
 
 ## Permissions
 
@@ -112,7 +129,7 @@ may view.
 
 The server's **Gateway** page sits in the server's navigation, next to Network.
 
-1. Pick a mode. Whoever has the address permission also picks a **domain** from the node's list and types the **address
+1. Pick a mode. Whoever has the address permission also picks a **domain** from the list the node offers and types the **address
    name** in front of it (not for an own domain, which is the whole address). The page offers the server's name reduced
    to what the hoster domain allows (letters only, letters and digits, or a DNS label; at most 63 characters). If
    nothing usable is left or the name is taken, it offers a random one. Without the address permission the plugin picks
@@ -171,7 +188,11 @@ Switch Bedrock players on on the Gateway page, then:
 
 1. Download the Floodgate key from the Gateway page (`key.pem`).
 2. Install Floodgate on the server and put the key at `plugins/floodgate/key.pem`.
-3. Restart the server.
+3. If the server runs an older Minecraft Java version than the newest one, also install the
+   [ViaVersion](https://modrinth.com/plugin/viaversion) plugin (Paper/Spigot). DYLARIS' Geyser always speaks the newest
+   Java version (currently 26.3); without ViaVersion, Bedrock players on an older server see `Outdated server! I'm still
+   on 1.21.11` (with the server's version).
+4. Restart the server.
 
 **A Bedrock join has not been proven with a real Bedrock client yet.** The switch, the provider flag, the key download and
 Floodgate loading the key were tested.
@@ -210,5 +231,5 @@ plugin honours `Retry-After` (60 seconds if the header is missing): the run stop
 until the window has passed. The command then prints `The provider asked to wait N s; the run stopped.` On the Gateway
 page a refused call shows the provider's own sentence; try again a little later. While the window runs, the page makes no
 provider call either and says `The gateway provider asked to wait a moment. Try again shortly.` The page keeps its status
-line for 30 seconds and its suggested address name and domain list for 10 minutes, so page views do not use up the read
-limit.
+line for 30 seconds and its suggested address name for 10 minutes, so page views do not use up the read limit. The
+domain list is read from the panel's database; the provider is asked at most once an hour for it, plus Refresh.

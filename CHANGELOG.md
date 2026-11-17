@@ -7,6 +7,31 @@ One version covers both plugins; the release assets are `dylaris-gateway-pelican
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-17
+
+### Added
+- **Gateway domains**, one list of address domains for the whole panel (Pelican: admin area, Advanced; Pterodactyl
+  2.0: an admin screen of its own). DYLARIS' official domains arrive through the API on their own: hourly
+  (`dylaris-gateway:sync-domains`), when the list is empty or older than an hour at the moment it is needed, and with
+  **Refresh**. A failed sync keeps the last list and shows when it last succeeded.
+- A switch per domain: on, users may pick it; off, admins only.
+- Own domains are added and verified in the plugin: enter the domain, publish the TXT record shown, click Verify. Only a
+  verified own domain can be picked. Remove releases the claim at DYLARIS.
+- The region of each official domain is derived from the provider's region wildcards and shown in the list and in the
+  address dropdown. A node offers the domains of its own region and those without one.
+
+### Changed
+- The per-node domain list on the node's Gateway tab is gone. Updating moves it into the panel-wide list: a domain
+  ticked on any node is kept, one marked Admins only on any node is switched off; if any node never saved a list,
+  every official domain is switched on, otherwise the official domains no node ticked start switched off.
+- New official domains arrive switched on, so users get DYLARIS' domains without an admin step.
+- An official domain DYLARIS no longer lists stays in the list as `No longer offered` and cannot be picked; existing
+  addresses under it are left alone.
+- The address dropdown reads the list from the panel's database on every view instead of a 10 minute cache, so a
+  change to the list shows at once.
+- Docs: the Bedrock steps say that a server on an older Minecraft Java version also needs ViaVersion, because DYLARIS'
+  Geyser always speaks the newest Java version; without it Bedrock players see `Outdated server!`.
+
 ## [0.1.0] - 2026-11-17
 
 First public release, for both plugins.
@@ -46,5 +71,6 @@ First public release, for both plugins.
 - Pterodactyl: the loopback allocation is hidden in the UI only; the reconcile repairs a change within 5 minutes.
 - Pterodactyl 1.x has no plugin system; see `docs/pterodactyl-1x.md` (not tested on a 1.x panel).
 
-[Unreleased]: https://github.com/dylaris-dev/panel-plugins/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/dylaris-dev/panel-plugins/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/dylaris-dev/panel-plugins/releases/tag/v0.2.0
 [0.1.0]: https://github.com/dylaris-dev/panel-plugins/releases/tag/v0.1.0

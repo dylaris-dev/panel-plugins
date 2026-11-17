@@ -40,8 +40,9 @@ Wings node opens an outbound tunnel to the edges, so nothing has to listen on th
 
 - **Three permissions per server**, for subusers: view (address and status), mode (switch modes, Real player IP,
   Bedrock) and address (choose or change the address). Owners and admins hold all three.
-- **Domains per node**: the admin offers the provider's hoster domains and the account's verified own domains, each
-  optionally for admins only; users pick one and type only the name in front of it.
+- **One domain list for the panel**: DYLARIS' official domains arrive on their own (synced hourly), own domains are
+  added and verified right there, and a switch per domain says whether users may pick it or only admins. A node offers
+  the domains of its own region; users pick one and type only the name in front of it.
 - **Change the address later**: the new address works first, then the old one is removed.
 
 ## Requirements
@@ -52,7 +53,7 @@ Wings node opens an outbound tunnel to the edges, so nothing has to listen on th
 - A **DYLARIS account with a Managed Gateway plan**, and an **API key with `gateway.read` and `gateway.write`**, used by
   this one panel install only.
 - **Docker on each Wings node**, for the link container.
-- The panel's scheduler (cron) running, for the reconcile every 5 minutes.
+- The panel's scheduler (cron) running, for the reconcile every 5 minutes and the hourly domain sync.
 
 ## Quick start
 
@@ -67,12 +68,14 @@ Wings node opens an outbound tunnel to the edges, so nothing has to listen on th
 3. In the admin area, enter the API key in the plugin settings and run the connection test. The provider is always
    `https://panel.dylaris.com`; there is no URL to enter.
 4. On a node's **Gateway** tab, pick a region and connect. Copy the Docker Compose snippet shown once to the node and run
-   `docker compose up -d`. Below that, choose the domains the node offers.
+   `docker compose up -d`. The address domains are one list for the panel, under **Gateway domains** in the admin
+   area; the DYLARIS domains are already there, add own domains if you have any.
 5. On a server's **Gateway** page, pick a mode, a domain and an address name, apply, and restart the server (the page
    has a **Restart now** button for that).
 
-Updating from 0.1.0: install the new file as the guides say. The saved API key stays. Subusers who had the 0.1.0
-gateway permission get all three new ones, so nobody loses anything.
+Updating from 0.1.0: install the new file as the guides say. The saved API key stays. The per-node domain lists move
+into the panel-wide list (the install guides say how). Subusers who had the 0.1.0 gateway permission get all three
+new ones, so nobody loses anything.
 
 **Pterodactyl 1.x** has no plugin system. The gateway still works with it, managed from the DYLARIS dashboard:
 [docs/pterodactyl-1x.md](docs/pterodactyl-1x.md). That guide was not tested on a 1.x panel.

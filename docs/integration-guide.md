@@ -26,6 +26,8 @@ Then wire them together:
 - `Reconciler` - brings every known server back in line with the panel and the provider.
 - `StatusService` - what a server page shows (route active, link online, player counts).
 - `AddressLabel` - turns a server name into an address name the hoster domain accepts.
+- `DomainList` - the panel-wide domain list: sync with the provider, the region filter, own domains (add, verify,
+  remove) and the switch per domain.
 
 In another language, read those files as the specification. They are short, and the tests in `core/tests` (with the
 recorded provider responses in `core/tests/fixtures/provider`) show the expected behaviour for every case below.
@@ -40,6 +42,7 @@ recorded provider responses in `core/tests/fixtures/provider`) show the expected
 | Route | One per game server address: `domain` (address name plus hoster domain), the `link_id` it runs through, `target_ip` and `target_port` on the node, `proxy_protocol`, and the Java and Bedrock edition state. | `GET routes`, `POST routes`, `DELETE routes/{domain}`, `PATCH routes/{domain}/proxy-protocol`, `PUT routes/{domain}/bedrock`, `GET routes/{domain}/floodgate-key` |
 | Domain check | Whether an address is free, and if not, why (`taken`, `blocked`, `invalid`, `not_hosted`, `unverified`). | `GET check-domain?domain=...` |
 | Players | Current Java and Bedrock players per route domain. | `GET players` |
+| Own domain | A domain of your own, the whole address: `domain`, `state` (`pending`, `verified`, `blocked`, ...) and the TXT record that proves it (`txtName`, `txtValue`). Adding answers `{"domain": {...}}` with the record; verify answers 409 with a sentence while the record is not found yet; delete is refused while a route uses the domain. | `GET custom-domains`, `POST custom-domains` (`{"domain": "play.example.com"}`), `POST custom-domains/{domain}/txt-token`, `POST custom-domains/{domain}/verify-txt`, `DELETE custom-domains/{domain}` |
 
 The provider adds fields over time but does not rename or remove them. Read only the keys you need and ignore the rest
 (`core/src/Provider/Dto.php` does exactly that).
@@ -109,7 +112,7 @@ The kit shows `online: true` in `GET link-kits` once the link is connected. Unti
 
 For a switch from Direct to Both or Gateway only, `ModeService::apply()` does this, in this order:
 
-1. **Choose the address.** Take the first hoster domain from `GET regions`, reduce the server name to what its
+1. **Choose the address.** Take the first domain the node offers (see the domain list below), reduce the server name to what its
    `validation` allows (`AddressLabel::candidates()`), and ask `GET check-domain` until one is available; fall back to a
    few random letter names. A name the user typed is checked the same way, and a refusal is shown with the `reason`.
    Remember the address with the server, also after it goes back to Direct, so it keeps its name.
@@ -137,6 +140,20 @@ Optional switches on a route:
   would break every direct player, because the server then expects a PROXY header on every connection.
 - **Bedrock** (`PUT routes/{domain}/bedrock` with `java` and `bedrock`): needs a gateway address. The server needs
   Floodgate with the key from `GET routes/{domain}/floodgate-key`.
+
+### The domain list
+
+The plugins keep one list of address domains for the whole panel (`DomainList`), with no extra fields at the provider:
+
+- The official domains are `hosterDomains` from `GET regions`. The region of one is the `items[]` entry whose
+  `wildcard` is `*.` plus the domain; none matching means no region. Own domains come from `GET custom-domains` and
+  have no region.
+- A node offers a domain when its region equals the node's kit region or it has none. Users get the switched-on ones,
+  admins all. An own domain counts only once `verified`; a domain the provider no longer lists counts not at all.
+- Sync hourly, when the list is empty or older than an hour at the moment it is needed (a fresh install, a panel that
+  was down), and on demand. A failed sync keeps the stored list. New official domains arrive switched on, the switch of
+  a known domain is never changed by a sync, and a domain the provider no longer lists is kept and marked, so existing
+  addresses under it are left alone.
 
 ### 5. Show status
 
