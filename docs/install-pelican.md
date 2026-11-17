@@ -41,16 +41,26 @@ It must print `dylaris-gateway-pelican-<version>.zip: OK`. Without `sha256sum`, 
 3. Pelican keeps a plugin's status in `plugin.json`. Overwriting the folder with a fresh copy resets the status to not
    installed, so run `p:plugin:install` again after every update.
 
+### Update from 0.1.0
+
+Delete `plugins/dylaris-gateway`, unzip the new file into `plugins/`, and run `php artisan p:plugin:install dylaris-gateway`.
+It runs the new migrations. The saved API key stays. Subusers who had **Manage the gateway** (`gateway.manage`) get the
+three new permissions (view, mode, address), so they can do everything they could before. The gateway box moved from the
+bottom of the console page to its own **Gateway** page in the server's navigation.
+
 ## Connect the panel to the provider
 
 1. Admin area, Plugins, DYLARIS Gateway, Settings.
-2. Enter the provider URL (default `https://panel.dylaris.com`) and the API key. Only `http://` and `https://` URLs are
-   accepted; an `http://` URL shows a warning because the key would travel unencrypted.
+2. Enter the API key. There is no provider URL to enter: the plugin always calls `https://panel.dylaris.com`. (The
+   environment variable `DYLARIS_GATEWAY_PROVIDER_URL` overrides it; it exists for DYLARIS' own tests.)
 3. Test connection (a link on the API key field). Success reads `Connected: managed gateway plan with read and write
    access.` Otherwise the message says what is missing.
-4. Save. The key is stored encrypted with the panel's `APP_KEY` and is never shown again: the field stays empty and the
-   help text says a key is saved. Leave it blank to keep it. A saved key is only ever sent to the saved URL, so a new
-   URL is refused without the key: `Enter the API key again when you change the provider URL.`
+4. **Eggs that may use the gateway.** The gateway carries Minecraft Java only. Until you save this list, the eggs with
+   the `minecraft` tag or the `eula` or `java_version` feature are allowed, without Bedrock Dedicated Server eggs (they
+   speak a protocol the edge does not route). Once saved, exactly the ticked eggs are allowed; tick an egg you import
+   later here.
+5. Save. The key is stored encrypted with the panel's `APP_KEY` and is never shown again: the field stays empty and the
+   help text says a key is saved. Leave it blank to keep it.
 
 If `APP_KEY` changes, the stored key can no longer be decrypted. The plugin then says `The stored API key can no longer be
 read. Enter it again.` Enter the key again in Settings.
@@ -73,20 +83,61 @@ Admin area, Nodes, pick the node, Gateway tab.
 5. **Allowed modes** limits what servers on this node may use (Direct, Both, Gateway only). Panel admins can always pick
    every mode.
 
+6. **Address domains** lists the domains users may pick for a server's address on this node: the provider's hoster
+   domains (for example `eu.dylaris.com`) and the account's **verified** own domains. Tick the ones to offer, tick
+   **Admins only** for those only panel admins may pick, and Save domains. Until you save, every hoster domain is
+   offered. Servers that already have an address keep it.
+   - A hoster domain takes a name in front of it: `survival.eu.dylaris.com`.
+   - An own domain is the **whole address** (`play.example.com`). The provider verifies each exact name (a `CNAME` to
+     the region and a TXT record on `_dylaris-verify.<name>`), so a name in front of a verified domain would be a
+     different, unverified name. To offer several addresses on your own domain, verify each name. Own domains are added
+     and verified in the DYLARIS panel (Nodes, Protected addresses, Your own domains); the tab links there and lists
+     only verified ones. Your plan's own-domain limit applies.
+
 Disconnect node revokes the node's link kit.
+
+## Permissions
+
+Three subuser permissions per server, under **DYLARIS gateway** in the server's subuser settings:
+
+| Permission | Allows |
+|---|---|
+| `gateway.view` | Seeing the Gateway page: address and status. |
+| `gateway.mode` | Switching Direct, Both and Gateway only (this creates or removes the route), Real player IP, Bedrock and the Floodgate key download. |
+| `gateway.address` | Choosing the address and changing it later. |
+
+Mode and address include view. The server's owner and admins with **update server** hold all three. Admin roles also
+get them, as **Gateway: view, mode, address** in the role editor: a role that holds one has it on every server the role
+may view.
 
 ## Switch a server
 
-A server's owner, panel admins and subusers with the **Manage the gateway** permission (`gateway.manage`, granted in the
-server's subuser settings) see the DYLARIS gateway widget on the server's console page.
+The server's **Gateway** page sits in the server's navigation, next to Network.
 
-1. Pick a mode and, for Both or Gateway only, an address name. The widget offers the server's name reduced to what the
-   provider's hoster domain allows (letters only, letters and digits, or a DNS label; at most 63 characters). If nothing
-   usable is left or the name is taken, it offers a random one. A refusal names the rule that applied.
-2. Apply. Some switches ask for confirmation first and spell out what changes (a different direct port, Real IP being
-   switched off).
-3. **Restart the server.** Allocation changes only take effect on a restart. The plugin never restarts a server itself; the
-   widget shows a banner until it sees the server running again.
+1. Pick a mode. Whoever has the address permission also picks a **domain** from the node's list and types the **address
+   name** in front of it (not for an own domain, which is the whole address). The page offers the server's name reduced
+   to what the hoster domain allows (letters only, letters and digits, or a DNS label; at most 63 characters). If
+   nothing usable is left or the name is taken, it offers a random one. Without the address permission the plugin picks
+   the name on the first domain. A refusal names the rule that applied.
+2. Apply mode. Some switches ask for confirmation first and spell out what changes (a different direct port, Real IP
+   being switched off).
+3. **Restart the server.** Allocation changes only take effect on a restart. The plugin never restarts a server by
+   itself; the page shows a banner until it sees the server running again, with a **Restart now** button for anyone who
+   may restart the server (`control.restart`).
+
+### Change the address
+
+Pick another domain or type another name and click **Change address**. Behind the gateway the new route is created
+first, Real player IP and Bedrock are carried over, and only then is the old route deleted: a failure before that leaves
+the old address working and removes the new one. **The old address stops working**; players then see `Unknown server
+address`. No restart is needed. With Bedrock on, download the Floodgate key again: the new address has its own key. In
+Direct the button reads **Save address** and only remembers the address for the next switch.
+
+### Servers that are not Minecraft
+
+A server whose egg is not in the settings' egg list shows `The gateway supports Minecraft servers only.` and offers no
+mode switch. A server that already uses the gateway when its egg leaves the list keeps working; the page says so, only a
+panel admin can switch it to Direct, and the reconcile does not recreate its route if it goes missing.
 
 What the plugin does with allocations: it creates a `127.0.0.1:<port>` allocation on the node for the gateway; in Gateway
 only that allocation becomes the primary and the public one is released; going back to Direct removes the loopback
@@ -116,9 +167,9 @@ through the gateway. The confirm step and the notice say the same.
 
 ### Bedrock and Floodgate
 
-Switch Bedrock players on in the widget, then:
+Switch Bedrock players on on the Gateway page, then:
 
-1. Download the Floodgate key from the widget (`key.pem`).
+1. Download the Floodgate key from the Gateway page (`key.pem`).
 2. Install Floodgate on the server and put the key at `plugins/floodgate/key.pem`.
 3. Restart the server.
 
@@ -156,7 +207,8 @@ Routes: 0 created, 0 deleted, 0 retargeted. Errors: 0.
 The provider limits a key: 120 reads and 30 writes per minute, 10 link kits per hour, plus the key's own rate (60 per
 minute by default). A reconcile reads the route list once per run, not once per server. When the provider answers 429 the
 plugin honours `Retry-After` (60 seconds if the header is missing): the run stops, and later runs make no provider call
-until the window has passed. The command then prints `The provider asked to wait N s; the run stopped.` In the widget a
-refused call shows the provider's own sentence; try again a little later. While the window runs, the widget makes no
-provider call either and says `The gateway provider asked to wait a moment. Try again shortly.` The widget keeps its
-status line for 30 seconds and its suggested address name for 10 minutes, so console views do not use up the read limit.
+until the window has passed. The command then prints `The provider asked to wait N s; the run stopped.` On the Gateway
+page a refused call shows the provider's own sentence; try again a little later. While the window runs, the page makes no
+provider call either and says `The gateway provider asked to wait a moment. Try again shortly.` The page keeps its status
+line for 30 seconds and its suggested address name and domain list for 10 minutes, so page views do not use up the read
+limit.

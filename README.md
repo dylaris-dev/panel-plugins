@@ -27,13 +27,22 @@ Wings node opens an outbound tunnel to the edges, so nothing has to listen on th
 - **Real player IP.** In Gateway only mode the route can send a PROXY protocol header, so Paper or Velocity sees the
   player's address instead of the gateway's.
 - **Bedrock players** through Floodgate, with the key download in the panel.
-- **Per server, three modes**, switched by the server's owner, an admin or a subuser with the gateway permission:
+- **Minecraft only.** The edge routes the Minecraft Java handshake (Bedrock players join through Geyser in front of a
+  Java server). The admin picks the eggs that may use the gateway; by default the Java Minecraft eggs. Any other server
+  says `The gateway supports Minecraft servers only.` and offers no mode switch.
+- **Per server, three modes**, switched by the server's owner, an admin or a subuser with the mode permission:
 
 | Mode | In plain words |
 |---|---|
 | Direct | Nothing changes: players use the node's IP and port. No gateway address. |
 | Both | The gateway address works, and the old IP and port keep working too. A safe way to move players over. |
 | Gateway only | Only the gateway address works. The public port is released, so the node IP is no longer an entry point. |
+
+- **Three permissions per server**, for subusers: view (address and status), mode (switch modes, Real player IP,
+  Bedrock) and address (choose or change the address). Owners and admins hold all three.
+- **Domains per node**: the admin offers the provider's hoster domains and the account's verified own domains, each
+  optionally for admins only; users pick one and type only the name in front of it.
+- **Change the address later**: the new address works first, then the old one is removed.
 
 ## Requirements
 
@@ -55,10 +64,15 @@ Wings node opens an outbound tunnel to the edges, so nothing has to listen on th
      Full guide: [docs/install-pelican.md](docs/install-pelican.md).
    - Pterodactyl 2.0: `php artisan p:extension:install dylaris-gateway-pterodactyl-<version>.pteroext --enable`.
      Full guide: [docs/install-pterodactyl.md](docs/install-pterodactyl.md).
-3. In the admin area, enter the provider URL (`https://panel.dylaris.com`) and the API key, and run the connection test.
+3. In the admin area, enter the API key in the plugin settings and run the connection test. The provider is always
+   `https://panel.dylaris.com`; there is no URL to enter.
 4. On a node's **Gateway** tab, pick a region and connect. Copy the Docker Compose snippet shown once to the node and run
-   `docker compose up -d`.
-5. On a server, pick a mode and an address name, apply, and restart the server.
+   `docker compose up -d`. Below that, choose the domains the node offers.
+5. On a server's **Gateway** page, pick a mode, a domain and an address name, apply, and restart the server (the page
+   has a **Restart now** button for that).
+
+Updating from 0.1.0: install the new file as the guides say. The saved API key stays. Subusers who had the 0.1.0
+gateway permission get all three new ones, so nobody loses anything.
 
 **Pterodactyl 1.x** has no plugin system. The gateway still works with it, managed from the DYLARIS dashboard:
 [docs/pterodactyl-1x.md](docs/pterodactyl-1x.md). That guide was not tested on a 1.x panel.
@@ -77,19 +91,22 @@ Wings node opens an outbound tunnel to the edges, so nothing has to listen on th
   outbound tunnel to the edge; nothing on the node has to accept inbound gateway traffic.
 - Switching a server to Both or Gateway only adds a `127.0.0.1:<port>` allocation to it. Wings binds such an allocation to
   its Docker interface (`172.18.0.1` by default), which is where the link reaches the server. The plugin then creates a
-  **route** at the provider: address name plus hoster domain, pointing at that interface and port through the node's link.
+  **route** at the provider: address name plus hoster domain (or a verified own domain), pointing at that interface and
+  port through the node's link.
 - Gateway only makes the loopback allocation the primary and releases the public one. Going back takes the old public
   address if it is still free.
 - A **reconcile** every 5 minutes repairs what changed in the panel: deleted servers, changed ports, servers moved to
   another node, routes missing at the provider.
 
-The plugin never restarts a server and never edits server files; it says when a restart or a config change is needed.
+The plugin never restarts a server on its own and never edits server files; it says when a restart or a config change
+is needed, and offers a **Restart now** button to whoever may restart the server.
 
 ## Security notes
 
-- The API key is stored **encrypted with the panel's `APP_KEY`** and never shown again after saving. A saved key is only
-  ever sent to the saved provider URL; changing the URL needs the key typed again.
-- **What is sent where:** the panel calls only the provider URL you configure (default `https://panel.dylaris.com`),
+- The API key is stored **encrypted with the panel's `APP_KEY`** and never shown again after saving. The provider URL
+  is fixed to `https://panel.dylaris.com`, so a saved key cannot be pointed anywhere else from the panel. Only the
+  environment variable `DYLARIS_GATEWAY_PROVIDER_URL` overrides it; it exists for DYLARIS' own tests.
+- **What is sent where:** the panel calls only `https://panel.dylaris.com`,
   under `/api/external/gateway/*`, with the API key as a Bearer token. It sends what a route needs: node names (as link
   kit names), the region, the address name, the target interface IP and port, and the Real IP and Bedrock switches. It
   reads back account, regions, link kits, routes and player counts for the status lines.

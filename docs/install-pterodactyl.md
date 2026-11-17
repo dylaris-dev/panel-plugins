@@ -45,15 +45,25 @@ php artisan p:extension:install dylaris-gateway-pterodactyl-<version>.pteroext -
 It prints `Installed DYLARIS Gateway (dylaris-gateway) v<version> - enabled.` To update, install the new file with
 `--replace --enable`; the saved API key survives.
 
+### Update from 0.1.0
+
+`php artisan p:extension:install dylaris-gateway-pterodactyl-0.2.0.pteroext --replace --enable` runs the new
+migrations. The saved API key stays. Subusers who had `ext.dylaris-gateway.manage` get the three new permissions
+(view, mode, address), so they can do everything they could before. The provider URL setting is gone; a value saved by
+0.1.0 is ignored.
+
 ## Connect the panel to the provider
 
-1. Admin area, Extensions, DYLARIS Gateway, settings dialog: provider URL (default `https://panel.dylaris.com`) and API
-   key. Save settings.
-2. Use the **DYLARIS Gateway: Test connection** card on the Extensions page. Success reads `Connected: managed gateway
-   plan with read and write access.` With empty fields it tests the saved settings. A different URL needs the key typed
-   again: the saved key is only ever sent to the saved URL. Saving a new URL without the key is refused the same way:
-   `Enter the API key again when you change the provider URL.`
-3. The key is stored encrypted (Pterodactyl's secret extension setting) and is never shown again; the field stays empty.
+1. Admin area, Extensions, DYLARIS Gateway, settings dialog: the API key. There is no provider URL to enter: the
+   extension always calls `https://panel.dylaris.com`. (The environment variable `DYLARIS_GATEWAY_PROVIDER_URL`
+   overrides it; it exists for DYLARIS' own tests.)
+2. **Eggs that may use the gateway**, in the same dialog. The gateway carries Minecraft Java only. Until you save, the
+   eggs with the `minecraft` tag or the `eula` or `java_version` feature are allowed, without Bedrock Dedicated Server
+   eggs (they speak a protocol the edge does not route). Once saved, exactly the selected eggs are allowed; select an egg
+   you import later here. Save settings.
+3. Use the **DYLARIS Gateway: Test connection** card on the Extensions page. Success reads `Connected: managed gateway
+   plan with read and write access.` With an empty field it tests the saved key.
+4. The key is stored encrypted (Pterodactyl's secret extension setting) and is never shown again; the field stays empty.
 
 **If `APP_KEY` changes, the stored key can no longer be decrypted.** Pterodactyl's own extension settings page then
 fails, and the connection test says to enter the key again. Re-enter the API key to fix it.
@@ -76,20 +86,60 @@ Admin area, Nodes, pick the node, Gateway tab.
 5. **Allowed modes** limits what servers on this node may use. Save allowed modes. Root admins can always pick every
    mode.
 
+6. **Address domains** lists the domains users may pick for a server's address on this node: the provider's hoster
+   domains (for example `eu.dylaris.com`) and the account's **verified** own domains. Tick the ones to offer, tick
+   **Admins only** for those only root admins may pick, and Save domains. Until you save, every hoster domain is
+   offered. Servers that already have an address keep it.
+   - A hoster domain takes a name in front of it: `survival.eu.dylaris.com`.
+   - An own domain is the **whole address** (`play.example.com`). The provider verifies each exact name (a `CNAME` to
+     the region and a TXT record on `_dylaris-verify.<name>`), so a name in front of a verified domain would be a
+     different, unverified name. To offer several addresses on your own domain, verify each name. Own domains are added
+     and verified in the DYLARIS panel (Nodes, Protected addresses, Your own domains); the tab links there and lists
+     only verified ones. Your plan's own-domain limit applies.
+
 Disconnect node revokes the node's link kit.
+
+## Permissions
+
+Three subuser permissions per server, under **DYLARIS Gateway** in the server's user editor:
+
+| Permission | Allows |
+|---|---|
+| `ext.dylaris-gateway.view` | Seeing the Gateway page: address and status. |
+| `ext.dylaris-gateway.mode` | Switching Direct, Both and Gateway only (this creates or removes the route), Real player IP, Bedrock and the Floodgate key download. |
+| `ext.dylaris-gateway.address` | Choosing the address and changing it later. |
+
+Any one of them opens the Gateway page; mode and address include view. The server's owner and root admins hold all
+three. Pterodactyl has no admin roles beyond root admin, so there is nothing to grant to roles.
 
 ## Switch a server
 
-The server's owner, root admins and subusers with the **`ext.dylaris-gateway.manage`** permission see a **Gateway** page
-in the server's navigation. That permission alone is enough to open the page. Grant it in the server's subuser settings.
+The **Gateway** page is in the server's navigation.
 
-1. Pick a mode and, for Both or Gateway only, an address name. The page offers the server's name reduced to what the
-   provider's hoster domain allows (letters only, letters and digits, or a DNS label; at most 63 characters). If nothing
-   usable is left or the name is taken, it offers a random one. A refusal names the rule that applied.
-2. Apply. Some switches open a confirm dialog that spells out what changes (a different direct port, Real IP being
+1. Pick a mode. Whoever has the address permission also picks a **domain** from the node's list and types the **address
+   name** in front of it (not for an own domain, which is the whole address). The page offers the server's name reduced
+   to what the hoster domain allows (letters only, letters and digits, or a DNS label; at most 63 characters). If
+   nothing usable is left or the name is taken, it offers a random one. Without the address permission the extension
+   picks the name on the first domain. A refusal names the rule that applied.
+2. Apply mode. Some switches open a confirm dialog that spells out what changes (a different direct port, Real IP being
    switched off).
-3. **Restart the server.** Allocation changes only take effect on a restart. The extension never restarts a server itself;
-   the page shows a banner until it sees the server running again.
+3. **Restart the server.** Allocation changes only take effect on a restart. The extension never restarts a server by
+   itself; the page shows a banner until it sees the server running again, with a **Restart now** button for anyone who
+   may restart the server (`control.restart`).
+
+### Change the address
+
+Pick another domain or type another name and click **Change address**. Behind the gateway the new route is created
+first, Real player IP and Bedrock are carried over, and only then is the old route deleted: a failure before that leaves
+the old address working and removes the new one. **The old address stops working**; players then see `Unknown server
+address`. No restart is needed. With Bedrock on, download the Floodgate key again: the new address has its own key. In
+Direct the button reads **Save address** and only remembers the address for the next switch.
+
+### Servers that are not Minecraft
+
+A server whose egg is not in the settings' egg list shows `The gateway supports Minecraft servers only.` and offers no
+mode switch. A server that already uses the gateway when its egg leaves the list keeps working; the page says so, only a
+root admin can switch it to Direct, and the reconcile does not recreate its route if it goes missing.
 
 What the extension does with allocations: it creates a `127.0.0.1:<port>` allocation on the node for the gateway; in
 Gateway only that allocation becomes the primary and the public one is released; going back to Direct removes the
@@ -171,5 +221,5 @@ extension honours `Retry-After` (60 seconds if the header is missing): the run s
 until the window has passed. The command then prints `The provider asked to wait N s; the run stopped.` On the Gateway
 page a refused call shows the provider's own sentence; try again a little later. While the window runs, the page makes no
 provider call either and says `The gateway provider asked to wait a moment. Try again shortly.` The page keeps its status
-line for 30 seconds and its suggested address name for 10 minutes, so page views do not use up the read limit. A failed
-reconcile exits with a non-zero code.
+line for 30 seconds and its suggested address name and domain list for 10 minutes, so page views do not use up the read
+limit. A failed reconcile exits with a non-zero code.

@@ -7,6 +7,34 @@ One version covers both plugins; the release assets are `dylaris-gateway-pelican
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-17
+
+### Added
+- Pelican: a **Gateway** page in the server's navigation. It replaces the gateway box at the bottom of the console page.
+- Three permissions per server instead of one: view (address and status), mode (Direct, Both, Gateway only, Real player
+  IP, Bedrock) and address (choose or change the address). Pelican admin roles get the same three.
+- Address domains per node: the admin offers the provider's hoster domains and the account's verified own domains, each
+  optionally for admins only. Users pick the domain from a list and type only the name in front of it.
+- Change the address of a server behind the gateway: the new address works first, then the old one is removed.
+- A **Restart now** button after a switch that needs a restart, for whoever may restart the server.
+- Eggs that may use the gateway, in the settings. By default the Java Minecraft eggs; any other server reads `The gateway
+  supports Minecraft servers only.`
+
+### Changed
+- The provider URL is no longer a setting: every call goes to `https://panel.dylaris.com`. The connection test takes only
+  the key.
+
+### Fixed
+- A new address is refused while another server of the same panel holds it behind the gateway (the provider calls a name
+  of the same account free).
+
+### Removed
+- Pelican: the gateway box on the console page (now the Gateway page).
+
+### Upgrade notes
+- Subusers with the 0.1.0 permission (`gateway.manage`, `ext.dylaris-gateway.manage`) get view, mode and address. The
+  saved API key stays.
+
 ## [0.1.0] - 2026-11-17
 
 First public release, for both plugins.
@@ -36,5 +64,6 @@ First public release, for both plugins.
 - Pterodactyl: the loopback allocation is hidden in the UI only; the reconcile repairs a change within 5 minutes.
 - Pterodactyl 1.x has no plugin system; see `docs/pterodactyl-1x.md` (not tested on a 1.x panel).
 
-[Unreleased]: https://github.com/dylaris-dev/panel-plugins/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/dylaris-dev/panel-plugins/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/dylaris-dev/panel-plugins/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/dylaris-dev/panel-plugins/releases/tag/v0.1.0

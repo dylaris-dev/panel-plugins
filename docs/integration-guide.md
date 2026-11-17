@@ -56,7 +56,7 @@ Use **one API key per installation**. Two systems sharing a provider account eac
 theirs to clean up.
 
 Store the key encrypted, and never send a saved key to a URL other than the one it was saved for: if someone changes
-the provider URL, ask for the key again.
+the provider URL, ask for the key again. (The plugins themselves no longer let the URL be changed at all.)
 
 ### 2. Connect a node: mint a link kit
 
