@@ -23,11 +23,30 @@ final class FakePanel implements PanelAdapter
     private array $servers = [];
     /** @var array<string, true> */
     private array $failNext = [];
+    /** @var array<string, true> */
+    private array $failAfterWrite = [];
     private int $nextAllocationId = 1;
 
     public function failNext(string $method): void
     {
         $this->failNext[$method] = true;
+    }
+
+    /**
+     * The next call of $method writes, then throws: what a panel service does when its database write went through
+     * and the Wings sync after it failed.
+     */
+    public function failNextAfterWrite(string $method): void
+    {
+        $this->failAfterWrite[$method] = true;
+    }
+
+    private function afterWrite(string $method): void
+    {
+        if (isset($this->failAfterWrite[$method])) {
+            unset($this->failAfterWrite[$method]);
+            throw new \RuntimeException("injected failure after the write in {$method}");
+        }
     }
 
     /** Test seed: a new unassigned allocation. */
@@ -123,6 +142,7 @@ final class FakePanel implements PanelAdapter
             throw new AllocationTaken($a->port);
         }
         $this->setOwner($allocationId, $serverId);
+        $this->afterWrite(__FUNCTION__);
     }
 
     public function unassign(int $serverId, int $allocationId): void
@@ -131,12 +151,14 @@ final class FakePanel implements PanelAdapter
         if (($this->allocations[$allocationId]->serverId ?? null) === $serverId) {
             $this->setOwner($allocationId, null);
         }
+        $this->afterWrite(__FUNCTION__);
     }
 
     public function setPrimary(int $serverId, int $allocationId): void
     {
         $this->enter(__FUNCTION__, func_get_args());
         $this->servers[$serverId]['primary'] = $allocationId;
+        $this->afterWrite(__FUNCTION__);
     }
 
     public function freePublic(int $nodeId, ?int $preferredPort, ?string $preferredIp = null): ?Allocation

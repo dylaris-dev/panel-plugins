@@ -411,8 +411,10 @@ final class ModeService
         }
         $l = $this->panel->findOrCreateLoopback($server->nodeId, $port);
         $undo[] = fn () => $this->panel->deleteIfUnassigned($l->id);
-        $this->panel->assign($server->id, $l->id);
+        // Each undo is registered BEFORE its call and is a no-op when the call changed nothing: a panel service can
+        // write the database and then fail on the Wings sync, and that write must be undone as well.
         $undo[] = fn () => $this->panel->unassign($server->id, $l->id);
+        $this->panel->assign($server->id, $l->id);
         return $l;
     }
 
@@ -430,10 +432,10 @@ final class ModeService
     private function dropPublic(PanelServer $server, Allocation $loopback, ServerState $s, array &$undo): void
     {
         $public = $server->primary;
-        $this->panel->setPrimary($server->id, $loopback->id);
         $undo[] = fn () => $this->panel->setPrimary($server->id, $public->id);
-        $this->panel->unassign($server->id, $public->id);
+        $this->panel->setPrimary($server->id, $loopback->id);
         $undo[] = fn () => $this->panel->assign($server->id, $public->id);
+        $this->panel->unassign($server->id, $public->id);
         $s->publicPort = $public->port;
         $s->publicIp = $public->ip;
     }
@@ -450,10 +452,10 @@ final class ModeService
             $s->proxyProtocol = false;
         }
         $loopback = $server->primary;
-        $this->panel->assign($server->id, $public->id);
         $undo[] = fn () => $this->panel->unassign($server->id, $public->id);
-        $this->panel->setPrimary($server->id, $public->id);
+        $this->panel->assign($server->id, $public->id);
         $undo[] = fn () => $this->panel->setPrimary($server->id, $loopback->id);
+        $this->panel->setPrimary($server->id, $public->id);
 
         $s->publicPort = null;
         $s->publicIp = null;
@@ -472,8 +474,8 @@ final class ModeService
         $this->loopback($server, $port, $undo);
         $this->createRoute($node, $s, $port, $undo, fn () => $this->provider->createRoute((string) $node->linkId, $s->label, $s->hosterDomain, $node->targetHost, $oldPort));
         if ($old !== null) {
-            $this->panel->unassign($server->id, $old->id);
             $undo[] = fn () => $this->panel->assign($server->id, $old->id);
+            $this->panel->unassign($server->id, $old->id);
             $this->panel->deleteIfUnassigned($old->id);
         }
         $s->port = $port;

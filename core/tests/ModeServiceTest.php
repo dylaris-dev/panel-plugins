@@ -683,6 +683,28 @@ final class ModeServiceTest extends TestCase
         $this->assertSame('vip.example.com', $this->store->get(7)->domain());
     }
 
+    /**
+     * Found in the 0.2.0 end-to-end test: Pelican's allocation services write the database, then sync Wings; a failed
+     * sync left the new loopback assigned, because its undo was only registered after the call returned.
+     */
+    public function testAPanelCallThatWroteBeforeItFailedIsUndoneToo(): void
+    {
+        foreach (['assign', 'setPrimary', 'unassign'] as $method) {
+            $this->setUp();
+            $this->panel->failNextAfterWrite($method);
+            try {
+                $this->svc->apply(7, Mode::GatewayOnly);
+                $this->fail("expected the injected failure in {$method}");
+            } catch (\RuntimeException $e) {
+                $this->assertStringContainsString($method, $e->getMessage());
+            }
+            $this->assertSame(['10.0.0.1:25565'], $this->allocs(), "{$method}: the server holds only its public allocation again");
+            $this->assertSame(0, $this->loopbacksOnNode(), "{$method}: no loopback is left on the node");
+            $this->assertNull($this->store->get(7), "{$method}: no state");
+            $this->assertSame(in_array('POST routes', $this->calls, true), in_array("DELETE routes/{$this->domain}", $this->calls, true), "{$method}: a route made on the way is deleted again");
+        }
+    }
+
     public function testADomainOfAnotherRegionIsNotOfferedOnTheNode(): void
     {
         $this->store->putDomains([
