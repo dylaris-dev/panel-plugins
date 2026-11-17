@@ -140,6 +140,37 @@ final class PteroStateStore implements StateStore
         });
     }
 
+    public function mergeDomains(array $domains): void
+    {
+        DB::transaction(function () use ($domains) {
+            foreach ($domains as $e) {
+                $meta = [
+                    'source' => $e->source,
+                    'validation' => $e->validation,
+                    'region' => $e->region,
+                    'own_state' => $e->ownState,
+                    'txt_name' => $e->txtName,
+                    'txt_value' => $e->txtValue,
+                    'last_seen_at' => $e->lastSeenAt,
+                    'gone' => $e->gone,
+                ];
+                // Insert if new, then update everything but enabled: the admin's switch is never read and written back.
+                DB::table(self::DOMAINS)->insertOrIgnore(['domain' => $e->domain, 'enabled' => $e->enabled] + $meta);
+                DB::table(self::DOMAINS)->where('domain', $e->domain)->update($meta);
+            }
+        });
+    }
+
+    public function setDomainEnabled(string $domain, bool $enabled): void
+    {
+        DB::table(self::DOMAINS)->where('domain', $domain)->update(['enabled' => $enabled]);
+    }
+
+    public function deleteDomain(string $domain): void
+    {
+        DB::table(self::DOMAINS)->where('domain', $domain)->delete();
+    }
+
     public function domainSync(): DomainSync
     {
         $r = DB::table(self::DOMAIN_SYNC)->where('id', 1)->first();

@@ -59,6 +59,37 @@ final class InMemoryStateStore implements StateStore
         $this->domains = array_values($domains);
     }
 
+    public function mergeDomains(array $domains): void
+    {
+        $byName = [];
+        foreach ($this->domains as $i => $e) {
+            $byName[$e->domain] = $i;
+        }
+        foreach ($domains as $e) {
+            if (isset($byName[$e->domain])) {
+                $this->domains[$byName[$e->domain]] = $e->with(enabled: $this->domains[$byName[$e->domain]]->enabled);
+            } else {
+                $this->domains[] = $e;
+                $byName[$e->domain] = count($this->domains) - 1;
+            }
+        }
+        usort($this->domains, fn ($a, $b) => [$a->own(), $a->domain] <=> [$b->own(), $b->domain]);
+    }
+
+    public function setDomainEnabled(string $domain, bool $enabled): void
+    {
+        foreach ($this->domains as $i => $e) {
+            if ($e->domain === $domain) {
+                $this->domains[$i] = $e->with(enabled: $enabled);
+            }
+        }
+    }
+
+    public function deleteDomain(string $domain): void
+    {
+        $this->domains = array_values(array_filter($this->domains, fn ($e) => $e->domain !== $domain));
+    }
+
     public function domainSync(): DomainSync
     {
         return $this->sync ?? new DomainSync();

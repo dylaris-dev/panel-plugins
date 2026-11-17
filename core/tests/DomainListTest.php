@@ -169,6 +169,20 @@ final class DomainListTest extends TestCase
         $this->assertEquals(new DomainSync(self::NOW, self::NOW + 10, 'The provider is down.', true), $this->store->domainSync());
     }
 
+    /** Owner review 0.2.0: the sync reads, then writes; a switch flipped in between must survive the write. */
+    public function testASwitchFlippedWhileASyncRunsSurvivesIt(): void
+    {
+        $this->list->sync(self::NOW);
+        $racing = new RacingStateStore($this->store, fn () => $this->store->setDomainEnabled('eu.dylaris.com', false));
+        $list = new DomainList($this->provider->client(), $racing);
+
+        $list->sync(self::NOW + 10);
+
+        $this->assertTrue($racing->fired, 'the toggle ran between the read and the write');
+        $this->assertFalse($this->store->domains()[0]->enabled, 'the sync did not write back its older read');
+        $this->assertSame(self::NOW + 10, $this->store->domains()[0]->lastSeenAt, 'the sync still updated the row');
+    }
+
     public function testEnsureFreshSyncsAnEmptyOrStaleListAndBacksOffAfterAFailure(): void
     {
         $this->list->ensureFresh(self::NOW);

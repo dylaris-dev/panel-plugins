@@ -2,6 +2,7 @@
 
 namespace Dylaris\GatewayPelican\Tests;
 
+use Dylaris\GatewayPanel\DomainEntry;
 use Dylaris\GatewayPanel\Mode;
 use Dylaris\GatewayPanel\NodeState;
 use Dylaris\GatewayPanel\ServerState;
@@ -76,5 +77,28 @@ class EloquentStateStoreTest extends PluginTestCase
         $n2 = new NodeState(4, null, null, [], '172.18.0.1');
         $this->store()->putNode($n2);
         $this->assertEquals($n2, $this->store()->node(4));
+    }
+
+    /** Owner review 0.2.0: the sync's write is column-scoped; the admin's switch is never written back from a read. */
+    public function test_merging_domains_never_writes_the_switch_of_a_stored_row(): void
+    {
+        FakeProvider::bind($this->app);
+        $this->store()->putDomains([new DomainEntry('play.example.net', DomainEntry::OFFICIAL, true, 'letters')]);
+        $racing = new \Dylaris\GatewayPanel\DomainList($this->app->make(\Dylaris\GatewayPanel\Provider\ProviderClient::class), new RacingStore(
+            $this->store(),
+            fn () => $this->store()->setDomainEnabled('play.example.net', false),
+        ));
+
+        $racing->sync(1_800_000_000);
+
+        $rows = $this->store()->domains();
+        $this->assertSame(['play.example.net', false, false, 1_800_000_000], [$rows[0]->domain, $rows[0]->enabled, $rows[0]->gone, $rows[0]->lastSeenAt], 'the toggle between read and write survives');
+
+        $this->store()->mergeDomains([new DomainEntry('play.example.net', DomainEntry::OFFICIAL, true, 'dns', 'eu', gone: true, lastSeenAt: 5)]);
+        $row = $this->store()->domains()[0];
+        $this->assertSame([false, 'dns', 'eu', true, 5], [$row->enabled, $row->validation, $row->region, $row->gone, $row->lastSeenAt]);
+
+        $this->store()->deleteDomain('play.example.net');
+        $this->assertNotContains('play.example.net', array_map(fn ($e) => $e->domain, $this->store()->domains()));
     }
 }

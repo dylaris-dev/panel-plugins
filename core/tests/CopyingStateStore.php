@@ -61,6 +61,21 @@ final class CopyingStateStore implements StateStore
         $this->inner->putDomains($domains);
     }
 
+    public function mergeDomains(array $domains): void
+    {
+        $this->inner->mergeDomains($domains);
+    }
+
+    public function setDomainEnabled(string $domain, bool $enabled): void
+    {
+        $this->inner->setDomainEnabled($domain, $enabled);
+    }
+
+    public function deleteDomain(string $domain): void
+    {
+        $this->inner->deleteDomain($domain);
+    }
+
     public function domainSync(): DomainSync
     {
         return $this->inner->domainSync();

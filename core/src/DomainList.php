@@ -51,9 +51,11 @@ final class DomainList
             $this->store->putDomainSync(new DomainSync($meta->syncedAt, $now, $e->userMessage, $meta->newOfficialEnabled));
             throw $e;
         }
-        // ponytail: read-merge-write without a lock; a toggle in the few ms between read and write is lost, a lock if that ever matters.
         $merged = self::merge($this->store->domains(), $regions, $own, $now, $meta->newOfficialEnabled);
-        $this->store->putDomains($merged);
+        // Column-scoped: a stored row keeps whatever enabled says at write time, so a switch flipped while this sync
+        // ran is never undone by the sync's older read. merge()'s enabled only matters for a new row.
+        $this->store->mergeDomains($merged);
+        $merged = $this->store->domains();
         $this->store->putDomainSync(new DomainSync($now, $now, null, true));
         return $merged;
     }
@@ -215,8 +217,7 @@ final class DomainList
 
     public function setEnabled(string $domain, bool $on): void
     {
-        $e = $this->entry($domain);
-        $this->replace($e->with(enabled: $on));
+        $this->store->setDomainEnabled($this->entry($domain)->domain, $on);
     }
 
     /**
@@ -236,7 +237,9 @@ final class DomainList
         }
         $c = $this->provider->addCustomDomain($domain);
         $entry = new DomainEntry($domain, DomainEntry::OWN, true, ownState: $c->state, txtName: $c->txtName, txtValue: $c->txtValue, lastSeenAt: time());
-        $this->replace($entry);
+        $this->store->mergeDomains([$entry]);
+        // A gone row of the same name keeps its old switch in the merge; an own domain the admin adds is on.
+        $this->store->setDomainEnabled($domain, true);
         return $entry;
     }
 
@@ -252,11 +255,11 @@ final class DomainList
         }
         if ($e->txtValue === '') {
             $c = $this->provider->customDomainTxtToken($e->domain);
-            $this->replace($e->with(txtName: $c->txtName, txtValue: $c->txtValue));
+            $this->store->mergeDomains([$e->with(txtName: $c->txtName, txtValue: $c->txtValue)]);
             throw new ModeRefused("Publish the TXT record {$c->txtName} with the value {$c->txtValue} first, then verify.");
         }
         $this->provider->verifyCustomDomain($e->domain);
-        $this->replace($e->with(ownState: self::STATE_VERIFIED, lastSeenAt: time()));
+        $this->store->mergeDomains([$e->with(ownState: self::STATE_VERIFIED, lastSeenAt: time())]);
         return "{$e->domain} is verified. Users can pick it once it is enabled.";
     }
 
@@ -279,7 +282,7 @@ final class DomainList
                 }
             }
         }
-        $this->store->putDomains(array_values(array_filter($this->store->domains(), fn (DomainEntry $x) => $x->domain !== $e->domain)));
+        $this->store->deleteDomain($e->domain);
     }
 
     private function entry(string $domain): DomainEntry
@@ -291,12 +294,6 @@ final class DomainList
             }
         }
         throw new ModeRefused('That domain is not in the list.');
-    }
-
-    private function replace(DomainEntry $entry): void
-    {
-        $rest = array_filter($this->store->domains(), fn (DomainEntry $x) => $x->domain !== $entry->domain);
-        $this->store->putDomains(self::sorted([...$rest, $entry]));
     }
 
     /**
