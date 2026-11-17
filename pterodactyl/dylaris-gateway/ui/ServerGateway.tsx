@@ -32,6 +32,7 @@ interface ServerState {
     modes: { value: string; label: string }[];
     not_offered: string | null;
     not_allowed: string | null;
+    no_domains: string | null;
     can_mode: boolean;
     can_address: boolean;
     first_enable: boolean;
@@ -204,6 +205,7 @@ export default function ServerGateway() {
                         </Alert>
                     )}
                     {state.not_offered && <Alert type='info'>{state.not_offered}</Alert>}
+                    {state.no_domains && <Alert type='info'>{state.no_domains}</Alert>}
                     {state.last_error && (
                         <Alert type='danger' title='Last gateway error'>
                             {state.last_error}

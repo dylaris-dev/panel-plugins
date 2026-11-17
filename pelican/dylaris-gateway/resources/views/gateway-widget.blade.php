@@ -16,6 +16,10 @@
                 <x-filament::callout color="danger" heading="Last gateway error" :description="$state->lastError" />
             @endif
 
+            @if ($noDomains)
+                <x-filament::callout color="info" :heading="$noDomains" />
+            @endif
+
             @if ($notOffered)
                 <x-filament::callout color="warning" :heading="$notOffered" />
             @endif

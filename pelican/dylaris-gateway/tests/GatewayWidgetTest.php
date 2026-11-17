@@ -246,6 +246,15 @@ class GatewayWidgetTest extends PluginTestCase
         $this->assertArrayHasKey('vip.example.com', $this->widget()->instance()->domainOptions());
     }
 
+    public function test_only_admins_only_domains_leave_the_address_fields_out_and_say_so(): void
+    {
+        $this->store()->putNode(new NodeState($this->server->node_id, 'link-1', 'eu', Mode::cases(), '172.18.0.1', [new AllowedDomain('vip.example.com', true, true)]));
+        $this->inMode(Mode::Both);
+        $this->subuser('gateway.address');
+
+        $this->widget()->assertSee(ModeService::NO_DOMAINS)->assertFormFieldIsHidden('domain')->assertActionHidden('changeAddress');
+    }
+
     public function test_an_own_domain_takes_no_label(): void
     {
         $this->store()->putNode(new NodeState($this->server->node_id, 'link-1', 'eu', Mode::cases(), '172.18.0.1', [

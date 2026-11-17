@@ -510,6 +510,7 @@ class ServerGatewayRoutesTest extends ExtensionTestCase
             ['value' => 'play.example.net', 'label' => 'play.example.net', 'custom' => false],
             ['value' => 'own.example.com', 'label' => 'own.example.com (own domain, the whole address)', 'custom' => true],
         ]);
+        $this->getJson($this->url())->assertJsonPath('data.no_domains', null);
         $this->postJson($this->url('/mode'), ['mode' => 'both', 'domain' => 'vip.example.com'])->assertStatus(422)
             ->assertJsonPath('error', 'That domain is not offered for this server.');
         $this->postJson($this->url('/mode'), ['mode' => 'both', 'domain' => 'own.example.com', 'label' => 'ignored'])->assertOk()

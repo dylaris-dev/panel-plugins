@@ -185,6 +185,7 @@ final class ServerGatewayController
             'modes' => $modes,
             'not_offered' => $notOffered,
             'not_allowed' => $eggAllowed ? null : ($mode === Mode::Direct ? ModeService::MINECRAFT_ONLY : ModeService::NO_LONGER_ALLOWED),
+            'no_domains' => $can['address'] && $eggAllowed && $domains === [] ? ModeService::NO_DOMAINS : null,
             'can_mode' => $can['mode'],
             'can_address' => $can['address'] && $eggAllowed,
             'first_enable' => !$hasAddress,

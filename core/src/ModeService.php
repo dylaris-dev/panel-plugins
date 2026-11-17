@@ -32,6 +32,9 @@ final class ModeService
     /** A server that is already behind the gateway when its egg leaves the list keeps its route. */
     public const NO_LONGER_ALLOWED = 'The gateway supports Minecraft servers only. This server keeps its gateway address until an admin switches it to Direct.';
 
+    /** The address permission, but the node offers this user no domain (none saved, or admins only). */
+    public const NO_DOMAINS = "No domain on this node is offered to you, so the address cannot be chosen here. A panel admin chooses the domains on the node's Gateway tab.";
+
     public const NOT_CONNECTED = "This node is not connected to the gateway yet. An admin connects it on the node's Gateway tab.";
 
     /** Shown before and after leaving Gateway only while Real player IP is on: the plugin writes no server files. */

@@ -122,6 +122,7 @@ final class NodeGateway extends Component implements HasActions, HasSchemas
     public function connectAction(): Action
     {
         return Action::make('connect')
+            ->button()
             ->label('Connect node')
             ->icon(TablerIcon::PlugConnected)
             ->visible(fn () => !$this->connected())
@@ -136,6 +137,7 @@ final class NodeGateway extends Component implements HasActions, HasSchemas
     public function saveModesAction(): Action
     {
         return Action::make('saveModes')
+            ->button()
             ->label('Save allowed modes')
             ->icon(TablerIcon::DeviceFloppy)
             ->color('gray')
@@ -150,6 +152,7 @@ final class NodeGateway extends Component implements HasActions, HasSchemas
     public function saveDomainsAction(): Action
     {
         return Action::make('saveDomains')
+            ->button()
             ->label('Save domains')
             ->icon(TablerIcon::World)
             ->color('gray')
@@ -186,6 +189,7 @@ final class NodeGateway extends Component implements HasActions, HasSchemas
     public function disconnectAction(): Action
     {
         return Action::make('disconnect')
+            ->button()
             ->label('Disconnect node')
             ->icon(TablerIcon::PlugConnectedX)
             ->color('danger')

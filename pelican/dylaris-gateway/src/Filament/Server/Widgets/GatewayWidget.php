@@ -119,6 +119,7 @@ class GatewayWidget extends Widget implements HasActions, HasSchemas
     public function applyAction(): Action
     {
         return Action::make('apply')
+            ->button()
             ->label('Apply mode')
             ->icon(TablerIcon::Check)
             ->visible(fn () => $this->modeSelectable())
@@ -160,6 +161,7 @@ class GatewayWidget extends Widget implements HasActions, HasSchemas
     public function changeAddressAction(): Action
     {
         return Action::make('changeAddress')
+            ->button()
             ->label(fn () => $this->gatewayActive() ? 'Change address' : 'Save address')
             ->icon(TablerIcon::Pencil)
             ->color('gray')
@@ -188,6 +190,7 @@ class GatewayWidget extends Widget implements HasActions, HasSchemas
     public function restartAction(): Action
     {
         return Action::make('restart')
+            ->button()
             ->label('Restart now')
             ->icon(TablerIcon::Reload)
             ->color('warning')
@@ -211,6 +214,7 @@ class GatewayWidget extends Widget implements HasActions, HasSchemas
     public function floodgateKeyAction(): Action
     {
         return Action::make('floodgateKey')
+            ->button()
             ->label('Download Floodgate key')
             ->icon(TablerIcon::Download)
             ->color('gray')
@@ -289,7 +293,12 @@ class GatewayWidget extends Widget implements HasActions, HasSchemas
 
     protected function getViewData(): array
     {
-        return ['state' => $this->state(), 'notOffered' => $this->notOffered(), 'notAllowed' => $this->notAllowed()];
+        return [
+            'state' => $this->state(),
+            'notOffered' => $this->notOffered(),
+            'notAllowed' => $this->notAllowed(),
+            'noDomains' => $this->canAddress() && $this->eggAllowed() && $this->domainOptions() === [] ? ModeService::NO_DOMAINS : null,
+        ];
     }
 
     /** Narrowing a node's modes never moves a server; the page says its mode is no longer offered. */
@@ -458,7 +467,7 @@ class GatewayWidget extends Widget implements HasActions, HasSchemas
 
     private function addressEditable(): bool
     {
-        return $this->canAddress() && $this->eggAllowed();
+        return $this->canAddress() && $this->eggAllowed() && $this->domainOptions() !== [];
     }
 
     private function eggAllowed(): bool
