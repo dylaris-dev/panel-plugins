@@ -1,4 +1,5 @@
-DYLARIS Managed Gateway for your game panel. Pick the file for the panel you run:
+DYLARIS Managed Gateway for your game panel: no open ports, no SRV records, players join a plain address through the
+DYLARIS edge network. Pick the file for the panel you run:
 
 | File | Panel | Install |
 |---|---|---|
