@@ -21,6 +21,7 @@ class ExtensionServiceProvider extends ExtensionProvider
     public function register(): void
     {
         $this->registerCore();
+        $this->mergeConfigFrom($this->extensionPath('resources/config/dylaris-gateway.php'), 'dylaris-gateway');
 
         $this->app->singleton(StateStore::class, PteroStateStore::class);
         $this->app->singleton(PanelAdapter::class, PteroPanelAdapter::class);

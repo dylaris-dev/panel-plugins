@@ -32,7 +32,12 @@ final class TestConnectionController
         if ($key === '') {
             return self::result('Enter an API key first.');
         }
-        $problem = self::connectionProblem(new ProviderClient(GatewaySettings::providerUrl(), $key));
+        try {
+            $url = GatewaySettings::providerUrl();
+        } catch (GatewayUnavailable $e) {
+            return self::result($e->getMessage());
+        }
+        $problem = self::connectionProblem(new ProviderClient($url, $key));
 
         return self::result($problem, $problem === null);
     }
@@ -69,7 +74,16 @@ final class TestConnectionController
         return new JsonResponse(['data' => [
             'ok' => $ok,
             'message' => $problem ?? 'Connected: managed gateway plan with read and write access.',
-            'provider_url' => GatewaySettings::providerUrl(),
+            'provider_url' => self::urlOrNull(),
         ]]);
+    }
+
+    private static function urlOrNull(): ?string
+    {
+        try {
+            return GatewaySettings::providerUrl();
+        } catch (GatewayUnavailable) {
+            return null;
+        }
     }
 }

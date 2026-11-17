@@ -25,8 +25,9 @@ One version covers both plugins; the release assets are `dylaris-gateway-pelican
   the key.
 
 ### Fixed
-- A new address is refused while another server of the same panel holds it behind the gateway (the provider calls a name
-  of the same account free).
+- A new address is never a name that already has a route at the provider, or that another server of the same panel holds
+  behind the gateway: the provider's name check calls every name of the same account free, and creating a route under it
+  would move that route to this server.
 
 ### Removed
 - Pelican: the gateway box on the console page (now the Gateway page).

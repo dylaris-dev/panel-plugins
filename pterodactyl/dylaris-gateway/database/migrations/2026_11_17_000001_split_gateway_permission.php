@@ -20,11 +20,20 @@ return new class extends Migration
             : null);
     }
 
+    /**
+     * The old permission was everything at once, so only a subuser who could switch the mode AND choose the address gets
+     * it back; anyone else loses the new keys rather than gaining rights they never had.
+     */
     public function down(): void
     {
-        $this->rewrite(fn (array $p) => array_intersect(self::NEW, $p) !== []
-            ? [...array_diff($p, self::NEW), self::OLD]
-            : null);
+        $this->rewrite(function (array $p) {
+            if (array_intersect(self::NEW, $p) === []) {
+                return null;
+            }
+            $rest = array_values(array_diff($p, self::NEW));
+
+            return in_array(self::NEW[1], $p, true) && in_array(self::NEW[2], $p, true) ? [...$rest, self::OLD] : $rest;
+        });
     }
 
     /** @param callable(list<string>): ?list<string> $change null = leave the row alone */

@@ -32,12 +32,17 @@ class PermissionMigrationTest extends ExtensionTestCase
         $this->assertSame(['control.console', 'file.read'], $plain->fresh()->permissions);
     }
 
-    public function test_down_gives_manage_back(): void
+    /** Review 0.2.0: a rollback must never give a view-only subuser the old all-in-one permission. */
+    public function test_down_gives_manage_back_only_for_mode_and_address(): void
     {
-        $sub = $this->subuser(['control.console', 'ext.dylaris-gateway.address']);
+        $full = $this->subuser(['control.console', ...self::NEW]);
+        $view = $this->subuser(['control.console', 'ext.dylaris-gateway.view']);
+        $address = $this->subuser(['ext.dylaris-gateway.address']);
 
         $this->migration()->down();
 
-        $this->assertSame(['control.console', 'ext.dylaris-gateway.manage'], $sub->fresh()->permissions);
+        $this->assertSame(['control.console', 'ext.dylaris-gateway.manage'], $full->fresh()->permissions);
+        $this->assertSame(['control.console'], $view->fresh()->permissions);
+        $this->assertSame([], $address->fresh()->permissions);
     }
 }

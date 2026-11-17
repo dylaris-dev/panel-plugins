@@ -10,6 +10,7 @@ use Dylaris\GatewayPanel\Provider\ProviderException;
 use Dylaris\GatewayPanel\StateStore;
 use Dylaris\GatewayPtero\ErrorText;
 use Dylaris\GatewayPtero\GatewaySettings;
+use Dylaris\GatewayPtero\GatewayUnavailable;
 use Dylaris\GatewayPtero\ReconcileRunner;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -219,7 +220,11 @@ final class NodeGatewayController
     /** Where own domains are added and verified: the provider's own panel. */
     public static function ownDomainsUrl(): string
     {
-        return GatewaySettings::providerUrl() . '/nodes?tab=routes';
+        try {
+            return GatewaySettings::providerUrl() . '/nodes?tab=routes';
+        } catch (GatewayUnavailable) {
+            return GatewaySettings::DEFAULT_URL . '/nodes?tab=routes';
+        }
     }
 
     /**

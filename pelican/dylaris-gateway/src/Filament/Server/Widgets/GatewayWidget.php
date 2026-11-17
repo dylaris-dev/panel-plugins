@@ -201,6 +201,8 @@ class GatewayWidget extends Widget implements HasActions, HasSchemas
             ->modalDescription('Players on the server are disconnected while it restarts.')
             ->action(function () {
                 try {
+                    // The panel's own power path: power() also writes the server:power.restart activity entry,
+                    // with the user as actor, like the console's restart button.
                     app(DaemonServerRepository::class)->setServer($this->server)->power('restart');
                 } catch (\Throwable $e) {
                     $this->fail($e);
@@ -389,7 +391,7 @@ class GatewayWidget extends Widget implements HasActions, HasSchemas
             return null;
         }
         try {
-            return Cache::remember(GatewayLock::labelKey($this->server->id), 600, fn () => app(ModeService::class)->suggestLabel($this->server->id, $this->actorIsAdmin()));
+            return Cache::remember(GatewayLock::labelKey($this->server->id, $this->actorIsAdmin()), 600, fn () => app(ModeService::class)->suggestLabel($this->server->id, $this->actorIsAdmin()));
         } catch (\Throwable) {
             return null;
         }

@@ -25,12 +25,6 @@ class SettingsTest extends PluginTestCase
 {
     private const KEY = 'dgk_test_0123456789abcdef';
 
-    protected function tearDown(): void
-    {
-        unset($_SERVER[GatewaySettings::URL_ENV], $_ENV[GatewaySettings::URL_ENV]);
-        parent::tearDown();
-    }
-
     public function test_the_api_key_is_stored_encrypted(): void
     {
         (new DylarisGatewayPlugin())->saveSettings(['api_key' => self::KEY]);
@@ -73,9 +67,27 @@ class SettingsTest extends PluginTestCase
         DB::table('dylaris_gateway_settings')->insert(['id' => 1, 'provider_url' => 'https://attacker.example']);
         $this->assertSame('https://panel.dylaris.com', GatewaySettings::providerUrl());
 
-        $_SERVER[GatewaySettings::URL_ENV] = $_ENV[GatewaySettings::URL_ENV] = 'https://staging.example/ ';
+        // Through config, so `config:cache` keeps it (env() is null for .env values once the config is cached).
+        $this->assertArrayHasKey('provider_url', config('dylaris-gateway'));
+        config(['dylaris-gateway.provider_url' => 'https://staging.example/ ']);
         $this->assertSame('https://staging.example', GatewaySettings::providerUrl());
         Livewire::test(SettingsFormHost::class)->assertSee('Calls go only to https://staging.example.');
+    }
+
+    /** Review 0.2.0: a non-https override stops every call and says why, it never falls back to production. */
+    public function test_an_override_that_is_not_https_stops_the_gateway(): void
+    {
+        (new DylarisGatewayPlugin())->saveSettings(['api_key' => self::KEY]);
+        foreach (['http://staging.example', 'staging.example', 'ftp://staging.example'] as $bad) {
+            config(['dylaris-gateway.provider_url' => $bad]);
+            try {
+                $this->app->make(ProviderClient::class);
+                $this->fail("resolved a client for $bad");
+            } catch (GatewayUnavailable $e) {
+                $this->assertSame(GatewaySettings::BAD_OVERRIDE, $e->getMessage());
+            }
+        }
+        Livewire::test(SettingsFormHost::class)->assertOk()->assertSee(GatewaySettings::BAD_OVERRIDE);
     }
 
     public function test_the_provider_url_is_used_for_every_call(): void

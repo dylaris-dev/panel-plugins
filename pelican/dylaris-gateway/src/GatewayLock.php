@@ -47,9 +47,10 @@ final class GatewayLock
         return "dylaris-gateway-status-{$serverId}";
     }
 
-    public static function labelKey(int $serverId): string
+    /** Per admin flag: the first domain an admin may pick can be an admins-only one. */
+    public static function labelKey(int $serverId, bool $admin): string
     {
-        return "dylaris-gateway-label-{$serverId}";
+        return "dylaris-gateway-label-{$serverId}-" . ($admin ? 'admin' : 'user');
     }
 
     public static function domainsKey(int $nodeId, bool $admin): string

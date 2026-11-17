@@ -35,6 +35,13 @@ final class ModeService
     /** The address permission, but the node offers this user no domain (none saved, or admins only). */
     public const NO_DOMAINS = "No domain on this node is offered to you, so the address cannot be chosen here. A panel admin chooses the domains on the node's Gateway tab.";
 
+    public const IN_USE = 'That address is already in use on the gateway.';
+
+    public static function notOfferedAnyMore(string $address): string
+    {
+        return "The address {$address} is no longer offered on this node. Someone with the address permission has to choose a new one first.";
+    }
+
     public const NOT_CONNECTED = "This node is not connected to the gateway yet. An admin connects it on the node's Gateway tab.";
 
     /** Shown before and after leaving Gateway only while Real player IP is on: the plugin writes no server files. */
@@ -238,12 +245,6 @@ final class ModeService
         if (($node?->linkId ?? '') === '') {
             throw new ModeRefused(self::NOT_CONNECTED);
         }
-        // check-domain calls a name this account already holds available; posting it would retarget that route.
-        foreach ($this->provider->listRoutes() as $route) {
-            if ($route->domain === $next->domain()) {
-                throw new ModeRefused('That address is already in use on the gateway.');
-            }
-        }
         $undo = [];
         try {
             $this->createRoute($node, $next, $next->port, $undo, fn () => $this->deleteRoute($next->domain()));
@@ -299,16 +300,25 @@ final class ModeService
         $this->store->put($state);
     }
 
-    /** The first address is chosen and checked once; later switches reuse it unchanged. */
+    /**
+     * The first address is chosen and checked once; later switches from Direct reuse it, but only while the node still
+     * offers its domain to this actor (the admin may have removed it or made it admins only, or the server moved to a
+     * node with other domains). A server that is behind the gateway keeps its address whatever the list says.
+     */
     private function ensureAddress(ServerState $s, ?string $label, ?string $domain, PanelServer $server, bool $actorIsAdmin): void
     {
         if ($s->hasAddress()) {
+            $offered = false;
+            foreach ($this->domainChoices($server->nodeId, $actorIsAdmin) as $d) {
+                $offered = $offered || ($d->domain === $s->hosterDomain && $d->custom === ($s->label === ''));
+            }
+            if (!$offered) {
+                throw new ModeRefused(self::notOfferedAnyMore($s->domain()));
+            }
             // While the server was direct, someone else may have taken the remembered address;
             // re-posting it would retarget their route to this server.
-            foreach ($this->provider->listRoutes() as $route) {
-                if ($route->domain === $s->domain()) {
-                    throw new ModeRefused('That address is already in use on the gateway.');
-                }
+            if (isset($this->routedDomains()[$s->domain()])) {
+                throw new ModeRefused(self::IN_USE);
             }
             return;
         }
@@ -348,10 +358,25 @@ final class ModeService
         if ($this->heldByOtherServer($s->domain(), $s->serverId)) {
             throw new ModeRefused('That address is already used by another server.');
         }
+        // check-domain calls a name this account already holds available, and posting it would MOVE that route here:
+        // another server's players would land on this one, and an undo would delete the route it took over.
+        if (isset($this->routedDomains()[$s->domain()])) {
+            throw new ModeRefused(self::IN_USE);
+        }
         $check = $this->provider->checkDomain($s->domain());
         if (!$check->available) {
             throw new ModeRefused(AddressLabel::refusal($check->reason, $entry->validation));
         }
+    }
+
+    /** @return array<string, true> every address the account has a route under, from one list read */
+    private function routedDomains(): array
+    {
+        $out = [];
+        foreach ($this->provider->listRoutes() as $route) {
+            $out[$route->domain] = true;
+        }
+        return $out;
     }
 
     private function heldByOtherServer(string $domain, int $serverId): bool
@@ -367,9 +392,10 @@ final class ModeService
     /** The first candidate label the provider accepts and no other server of this panel holds, or null. */
     private function freeLabel(PanelServer $server, AllowedDomain $hoster): ?string
     {
+        $routed = $this->routedDomains();
         foreach (AddressLabel::candidates($server->name, $hoster->validation) as $label) {
             $domain = "{$label}.{$hoster->domain}";
-            if (!$this->heldByOtherServer($domain, $server->id) && $this->provider->checkDomain($domain)->available) {
+            if (!isset($routed[$domain]) && !$this->heldByOtherServer($domain, $server->id) && $this->provider->checkDomain($domain)->available) {
                 return $label;
             }
         }

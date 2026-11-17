@@ -58,12 +58,13 @@ class DylarisGatewayPlugin implements HasPluginSettings, Plugin
                         ->action(function (Get $get) {
                             try {
                                 $key = self::testKey((string) $get('api_key'));
+                                $url = GatewaySettings::providerUrl();
                             } catch (GatewayUnavailable $e) {
                                 Notification::make()->title($e->getMessage())->danger()->send();
 
                                 return;
                             }
-                            $problem = self::connectionProblem(new ProviderClient(GatewaySettings::providerUrl(), $key));
+                            $problem = self::connectionProblem(new ProviderClient($url, $key));
                             $problem === null
                                 ? Notification::make()->title('Connected: managed gateway plan with read and write access.')->success()->send()
                                 : Notification::make()->title('Connection test failed')->body($problem)->danger()->send();
@@ -92,7 +93,8 @@ class DylarisGatewayPlugin implements HasPluginSettings, Plugin
             sort($chosen);
             $s->eggs = $chosen;
         }
-        $s->provider_url = GatewaySettings::providerUrl();
+        // Legacy column (0.1.0 saved the URL here); nothing reads it any more.
+        $s->provider_url = GatewaySettings::DEFAULT_URL;
         $s->save();
     }
 
@@ -115,7 +117,7 @@ class DylarisGatewayPlugin implements HasPluginSettings, Plugin
 
     private static function keyHelp(): string
     {
-        $where = 'Calls go only to ' . GatewaySettings::providerUrl() . '.';
+        $where = GatewaySettings::providerSentence();
         $s = GatewaySettings::current();
         if (!$s->hasKey()) {
             return "Use a key dedicated to this panel, never one a DYLARIS customer Core uses. {$where}";

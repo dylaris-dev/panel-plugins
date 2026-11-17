@@ -208,7 +208,7 @@ final class ServerGatewayController
     private function suggestedLabel(Request $request, Server $server): string
     {
         try {
-            return Cache::remember(ReconcileRunner::labelKey($server->id), 600, fn () => app(ModeService::class)->suggestLabel($server->id, $this->isAdmin($request)));
+            return Cache::remember(ReconcileRunner::labelKey($server->id, $this->isAdmin($request)), 600, fn () => app(ModeService::class)->suggestLabel($server->id, $this->isAdmin($request)));
         } catch (\Throwable) {
             return '';
         }

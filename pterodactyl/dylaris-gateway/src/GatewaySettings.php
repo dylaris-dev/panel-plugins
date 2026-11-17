@@ -5,6 +5,7 @@ namespace Dylaris\GatewayPtero;
 use Dylaris\GatewayPanel\MinecraftEggs;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Pterodactyl\Models\Egg;
 use Pterodactyl\Services\Extensions\ExtensionRepository;
 use Pterodactyl\Services\Extensions\ExtensionSettingDefinition;
@@ -21,8 +22,7 @@ final class GatewaySettings
 
     public const DEFAULT_URL = 'https://panel.dylaris.com';
 
-    /** Overrides DEFAULT_URL, for DYLARIS' own tests against another provider. The key is sent to whichever URL is in effect. */
-    public const URL_ENV = 'DYLARIS_GATEWAY_PROVIDER_URL';
+    public const BAD_OVERRIDE = 'DYLARIS_GATEWAY_PROVIDER_URL must be an https:// URL. The gateway makes no calls until it is fixed or removed.';
 
     public const KEY_UNREADABLE = 'The stored API key can no longer be read. Enter it again.';
 
@@ -34,7 +34,7 @@ final class GatewaySettings
             ExtensionSettingDefinition::make('api_key', 'api_key', null, ['string', 'max:255'])
                 ->secret()
                 ->label('API key')
-                ->help('Use a key dedicated to this panel, never one a DYLARIS customer Core uses. Leave blank to keep the saved key. Calls go only to ' . self::providerUrl() . '.'),
+                ->help('Use a key dedicated to this panel, never one a DYLARIS customer Core uses. Leave blank to keep the saved key. ' . self::providerSentence()),
         ];
         // One query per boot; a fresh install migrates before the eggs table is filled, and a multiselect needs a choice.
         $eggs = self::eggs();
@@ -50,12 +50,36 @@ final class GatewaySettings
         return new ExtensionSettingsDefinition($settings, $fields);
     }
 
-    /** The provider every call goes to: fixed, not a setting, so a saved key cannot be sent anywhere else. */
+    /**
+     * The provider every call goes to: fixed, not a setting, so a saved key cannot be sent anywhere else. Only the
+     * dylaris-gateway.provider_url config entry (DYLARIS_GATEWAY_PROVIDER_URL) overrides it, and only with https://;
+     * anything else stops every call with BAD_OVERRIDE instead of quietly falling back to production.
+     *
+     * @throws GatewayUnavailable with BAD_OVERRIDE
+     */
     public static function providerUrl(): string
     {
-        $url = env(self::URL_ENV);
+        $url = config('dylaris-gateway.provider_url');
+        if (!is_string($url) || trim($url) === '') {
+            return self::DEFAULT_URL;
+        }
+        $url = rtrim(trim($url), '/');
+        if (!str_starts_with(strtolower($url), 'https://') || filter_var($url, FILTER_VALIDATE_URL) === false) {
+            Log::error(self::BAD_OVERRIDE);
+            throw new GatewayUnavailable(self::BAD_OVERRIDE);
+        }
 
-        return is_string($url) && trim($url) !== '' ? rtrim(trim($url), '/') : self::DEFAULT_URL;
+        return $url;
+    }
+
+    /** The sentence for help texts: where calls go, or why none go anywhere. */
+    public static function providerSentence(): string
+    {
+        try {
+            return 'Calls go only to ' . self::providerUrl() . '.';
+        } catch (GatewayUnavailable $e) {
+            return $e->getMessage();
+        }
     }
 
     /**

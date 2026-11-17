@@ -159,12 +159,6 @@ class SettingsTest extends ExtensionTestCase
         $this->assertSame(self::KEY, GatewaySettings::apiKey());
     }
 
-    protected function tearDown(): void
-    {
-        unset($_SERVER[GatewaySettings::URL_ENV], $_ENV[GatewaySettings::URL_ENV]);
-        parent::tearDown();
-    }
-
     /** 0.2.0: the provider is fixed. The settings have no URL, so no key can be pointed anywhere else. */
     public function test_the_provider_url_is_fixed_and_only_an_env_var_overrides_it(): void
     {
@@ -179,8 +173,28 @@ class SettingsTest extends ExtensionTestCase
         $url = (fn () => $this->baseUrl)->call($this->app->make(ProviderClient::class));
         $this->assertSame('https://panel.dylaris.com', $url);
 
-        $_SERVER[GatewaySettings::URL_ENV] = $_ENV[GatewaySettings::URL_ENV] = 'https://staging.example/ ';
+        // Through config, so `config:cache` keeps it (env() is null for .env values once the config is cached).
+        $this->assertArrayHasKey('provider_url', config('dylaris-gateway'));
+        config(['dylaris-gateway.provider_url' => 'https://staging.example/ ']);
         $this->assertSame('https://staging.example', GatewaySettings::providerUrl());
+    }
+
+    /** Review 0.2.0: a non-https override stops every call and says why, it never falls back to production. */
+    public function test_an_override_that_is_not_https_stops_the_gateway(): void
+    {
+        $this->save(['api_key' => self::KEY])->assertOk();
+        config(['dylaris-gateway.provider_url' => 'http://staging.example']);
+
+        try {
+            $this->app->make(ProviderClient::class);
+            $this->fail('resolved a client for an http override');
+        } catch (GatewayUnavailable $e) {
+            $this->assertSame(GatewaySettings::BAD_OVERRIDE, $e->getMessage());
+        }
+        $this->postJson(self::TEST_CONNECTION, [])->assertOk()
+            ->assertJsonPath('data.ok', false)
+            ->assertJsonPath('data.message', GatewaySettings::BAD_OVERRIDE)
+            ->assertJsonPath('data.provider_url', null);
     }
 
     public function test_test_connection_needs_a_key_and_names_the_provider(): void

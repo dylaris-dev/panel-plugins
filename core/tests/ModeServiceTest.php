@@ -142,14 +142,14 @@ final class ModeServiceTest extends TestCase
         $this->assertTrue($r->restartNeeded);
         $this->assertSame(self::RESTART, $r->notice);
         $this->assertSame(['10.0.0.1:25565', '127.0.0.1:25565'], $this->allocs());
-        $this->assertSame(['GET regions', 'GET check-domain', 'POST routes'], $this->calls);
+        $this->assertSame(['GET regions', 'GET routes', 'GET check-domain', 'POST routes'], $this->calls);
         $this->assertSame([
             'linkId' => 'link-1',
             'subdomain' => $this->panel->server(7)->shortId,
             'hosterDomain' => 'play.e2e.test',
             'targetHost' => '172.18.0.1',
             'targetPort' => 25565,
-        ], $this->bodies[2]);
+        ], $this->bodies[3]);
         $s = $this->store->get(7);
         $this->assertSame(Mode::Both, $s->mode);
         $this->assertSame(25565, $s->port);
@@ -164,7 +164,7 @@ final class ModeServiceTest extends TestCase
         $this->assertSame(self::RESTART, $r->notice);
         $this->assertSame(['127.0.0.1:25565'], $this->allocs());
         $this->assertNull($this->panel->allocation($this->public->id)->serverId);
-        $this->assertSame(['GET regions', 'GET check-domain', 'POST routes'], $this->calls);
+        $this->assertSame(['GET regions', 'GET routes', 'GET check-domain', 'POST routes'], $this->calls);
         $this->assertSame(['findOrCreateLoopback', 'assign', 'setPrimary', 'unassign'], $this->panelWrites());
         $s = $this->store->get(7);
         $this->assertSame(Mode::GatewayOnly, $s->mode);
@@ -441,7 +441,7 @@ final class ModeServiceTest extends TestCase
         $this->calls = [];
         $this->svc->apply(7, Mode::Both, 'other');
         $this->assertSame($shortId, $this->store->get(7)->label);
-        $this->assertSame(['GET routes', 'POST routes'], $this->calls);
+        $this->assertSame(['GET regions', 'GET routes', 'POST routes'], $this->calls);
 
         // A server's first address takes the given label.
         $this->panel->addServer(8, 1, $this->panel->addAllocation(1, '10.0.0.1', 25566));
@@ -461,7 +461,7 @@ final class ModeServiceTest extends TestCase
             $this->assertSame('That address is already in use on the gateway.', $this->refusal(fn () => $this->svc->apply(7, $to)));
         }
 
-        $this->assertSame(['GET routes', 'GET routes'], $this->calls);
+        $this->assertSame(['GET regions', 'GET routes', 'GET regions', 'GET routes'], $this->calls);
         $this->assertSame([], $this->panelWrites());
         $this->assertSame(['10.0.0.1:25565'], $this->allocs());
         $this->assertSame(Mode::Direct, $this->store->get(7)->mode);
@@ -496,7 +496,7 @@ final class ModeServiceTest extends TestCase
         $label = $this->store->get(8)->label;
         $this->assertMatchesRegularExpression('/^[a-z]{8}$/', $label);
         $this->assertNotSame('lobby', $label);
-        $this->assertSame(['GET regions', 'GET check-domain', 'GET check-domain', 'POST routes'], $this->calls);
+        $this->assertSame(['GET regions', 'GET routes', 'GET check-domain', 'GET check-domain', 'POST routes'], $this->calls);
     }
 
     public function testInvalidLabelRefusalNamesTheRule(): void
@@ -516,7 +516,7 @@ final class ModeServiceTest extends TestCase
         $msg = $this->refusal(fn () => $this->svc->apply(7, Mode::Both, 'lobby'));
 
         $this->assertSame('That address is not available (already taken).', $msg);
-        $this->assertSame(['GET regions', 'GET check-domain'], $this->calls);
+        $this->assertSame(['GET regions', 'GET routes', 'GET check-domain'], $this->calls);
         $this->assertSame(['10.0.0.1:25565'], $this->allocs());
         $this->assertNull($this->store->get(7));
     }
@@ -673,8 +673,8 @@ final class ModeServiceTest extends TestCase
         $this->svc->apply(7, Mode::Both, 'lobby', false, 'us.example.test');
 
         $this->assertSame('lobby.us.example.test', $this->store->get(7)->domain());
-        $this->assertSame(['GET check-domain', 'POST routes'], $this->calls);
-        $this->assertSame(['subdomain' => 'lobby', 'hosterDomain' => 'us.example.test'], array_intersect_key($this->bodies[1], ['subdomain' => 1, 'hosterDomain' => 1]));
+        $this->assertSame(['GET routes', 'GET check-domain', 'POST routes'], $this->calls);
+        $this->assertSame(['subdomain' => 'lobby', 'hosterDomain' => 'us.example.test'], array_intersect_key($this->bodies[2], ['subdomain' => 1, 'hosterDomain' => 1]));
     }
 
     public function testAnOwnDomainIsTheWholeAddress(): void
@@ -686,8 +686,8 @@ final class ModeServiceTest extends TestCase
 
         $s = $this->store->get(7);
         $this->assertSame(['', 'play.example.com', 'play.example.com'], [$s->label, $s->hosterDomain, $s->domain()]);
-        $this->assertSame(['GET check-domain', 'POST routes'], $this->calls);
-        $this->assertSame(['linkId' => 'link-1', 'customDomain' => 'play.example.com', 'targetHost' => '172.18.0.1', 'targetPort' => 25565], $this->bodies[1]);
+        $this->assertSame(['GET routes', 'GET check-domain', 'POST routes'], $this->calls);
+        $this->assertSame(['linkId' => 'link-1', 'customDomain' => 'play.example.com', 'targetHost' => '172.18.0.1', 'targetPort' => 25565], $this->bodies[2]);
     }
 
     public function testAnUnverifiedOwnDomainIsRefusedByTheCheck(): void
@@ -719,7 +719,7 @@ final class ModeServiceTest extends TestCase
         $r = $this->svc->changeAddress(7, 'New', 'play.e2e.test');
 
         $this->assertSame([
-            'GET regions', 'GET check-domain', 'GET routes', 'POST routes',
+            'GET regions', 'GET routes', 'GET check-domain', 'POST routes',
             'PATCH routes/new.play.e2e.test/proxy-protocol', 'PUT routes/new.play.e2e.test/bedrock',
             'DELETE routes/old.play.e2e.test',
         ], $this->calls);
@@ -768,13 +768,13 @@ final class ModeServiceTest extends TestCase
         $r = $this->svc->changeAddress(7, 'later', 'play.e2e.test');
 
         $this->assertSame('The address later.play.e2e.test is saved. It is used when the gateway is switched on.', $r->notice);
-        $this->assertSame(['GET regions', 'GET check-domain'], $this->calls);
+        $this->assertSame(['GET regions', 'GET routes', 'GET check-domain'], $this->calls);
         $this->assertSame(Mode::Direct, $this->store->get(7)->mode);
         $this->calls = [];
 
         $this->svc->apply(7, Mode::Both);
         $this->assertSame('later.play.e2e.test', $this->store->get(7)->domain());
-        $this->assertSame(['GET routes', 'POST routes'], $this->calls);
+        $this->assertSame(['GET regions', 'GET routes', 'POST routes'], $this->calls);
     }
 
     public function testChangingToANameAlreadyOnTheGatewayIsRefused(): void
@@ -806,5 +806,64 @@ final class ModeServiceTest extends TestCase
         $this->assertSame(ModeService::NO_LONGER_ALLOWED, $this->refusal(fn () => $this->svc->apply(7, Mode::GatewayOnly, null, true)));
         $this->assertTrue($this->svc->apply(7, Mode::Direct, null, true)->restartNeeded);
         $this->assertSame(Mode::Direct, $this->store->get(7)->mode);
+    }
+
+    /** Review 0.2.0: check-domain calls a name the account holds available, and posting it would move that route here. */
+    public function testAFirstAddressNeverTakesANameThatIsAlreadyRouted(): void
+    {
+        $shortId = $this->panel->server(7)->shortId;
+        // The name the plugin would pick (the server name) is routed already, to some other server of the account.
+        $this->routesBody = json_encode(['items' => [['domain' => "{$shortId}.play.e2e.test", 'link_id' => 'link-9']]]);
+
+        $this->svc->apply(7, Mode::Both);
+
+        $label = $this->store->get(7)->label;
+        $this->assertNotSame($shortId, $label, 'the routed name is skipped');
+        $this->assertSame(1, count(array_keys($this->calls, 'GET routes', true)), 'one list read for every candidate');
+        $this->assertNotContains("DELETE routes/{$shortId}.play.e2e.test", $this->calls);
+        $this->assertSame("{$label}.play.e2e.test", $this->bodies[array_search('POST routes', $this->calls, true)]['subdomain'] . '.play.e2e.test');
+
+        // A typed name that is routed is refused before anything changes.
+        $this->panel->addServer(8, 1, $this->panel->addAllocation(1, '10.0.0.1', 25566));
+        $this->calls = [];
+        $this->assertSame(ModeService::IN_USE, $this->refusal(fn () => $this->svc->apply(8, Mode::Both, $shortId)));
+        $this->assertNotContains('POST routes', $this->calls);
+        $this->assertNull($this->store->get(8));
+    }
+
+    public function testAnOwnDomainThatIsAlreadyRoutedIsRefused(): void
+    {
+        $this->offer(new AllowedDomain('play.example.com', true));
+        $this->routesBody = json_encode(['items' => [['domain' => 'play.example.com', 'link_id' => 'link-9']]]);
+
+        $this->assertSame(ModeService::IN_USE, $this->refusal(fn () => $this->svc->apply(7, Mode::Both, null, false, 'play.example.com')));
+        $this->assertSame(['GET routes'], $this->calls, 'refused before check-domain and before any route');
+        $this->assertSame(ModeService::IN_USE, $this->refusal(fn () => $this->svc->changeAddress(7, null, 'play.example.com')));
+    }
+
+    /** Review 0.2.0: a remembered address only comes back while the node still offers its domain to this actor. */
+    public function testSwitchingBackFromDirectChecksTheRememberedDomainAgainstTheNodeList(): void
+    {
+        $this->offer(new AllowedDomain('eu.example.test', false, false, 'letters'), new AllowedDomain('vip.example.test', false, false, 'letters'));
+        $this->svc->apply(7, Mode::Both, 'lobby', false, 'vip.example.test');
+        $this->svc->apply(7, Mode::Direct);
+
+        // The admin makes the domain admins only: the owner cannot bring the address back, an admin can.
+        $this->offer(new AllowedDomain('eu.example.test', false, false, 'letters'), new AllowedDomain('vip.example.test', false, true, 'letters'));
+        $this->assertSame(ModeService::notOfferedAnyMore('lobby.vip.example.test'), $this->refusal(fn () => $this->svc->apply(7, Mode::Both)));
+        $this->assertSame(Mode::Direct, $this->store->get(7)->mode);
+        $this->assertTrue($this->svc->apply(7, Mode::Both, null, true)->restartNeeded);
+
+        // A server behind the gateway keeps its address when the domain leaves the list.
+        $this->offer(new AllowedDomain('eu.example.test', false, false, 'letters'));
+        $this->assertTrue($this->svc->apply(7, Mode::GatewayOnly, null, true)->restartNeeded);
+        $this->assertSame('lobby.vip.example.test', $this->store->get(7)->domain());
+
+        // Gone from the list entirely: refused for everyone once the server is direct again; a new address fixes it.
+        $this->svc->apply(7, Mode::Direct, null, true);
+        $this->assertSame(ModeService::notOfferedAnyMore('lobby.vip.example.test'), $this->refusal(fn () => $this->svc->apply(7, Mode::Both, null, true)));
+        $this->svc->changeAddress(7, 'lobby', 'eu.example.test');
+        $this->svc->apply(7, Mode::Both);
+        $this->assertSame('lobby.eu.example.test', $this->store->get(7)->domain());
     }
 }

@@ -15,6 +15,7 @@ use Dylaris\GatewayPelican\ErrorText;
 use Dylaris\GatewayPelican\Filament\Server\Widgets\GatewayWidget;
 use Dylaris\GatewayPelican\GatewayLock;
 use Dylaris\GatewayPelican\GatewaySettings;
+use Dylaris\GatewayPelican\GatewayUnavailable;
 use Filament\Actions\Action;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
@@ -335,7 +336,11 @@ final class NodeGateway extends Component implements HasActions, HasSchemas
     /** Where own domains are added and verified: the provider's own panel. */
     public static function ownDomainsUrl(): string
     {
-        return GatewaySettings::providerUrl() . '/nodes?tab=routes';
+        try {
+            return GatewaySettings::providerUrl() . '/nodes?tab=routes';
+        } catch (GatewayUnavailable) {
+            return GatewaySettings::DEFAULT_URL . '/nodes?tab=routes';
+        }
     }
 
     /**

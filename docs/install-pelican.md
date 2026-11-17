@@ -52,7 +52,9 @@ bottom of the console page to its own **Gateway** page in the server's navigatio
 
 1. Admin area, Plugins, DYLARIS Gateway, Settings.
 2. Enter the API key. There is no provider URL to enter: the plugin always calls `https://panel.dylaris.com`. (The
-   environment variable `DYLARIS_GATEWAY_PROVIDER_URL` overrides it; it exists for DYLARIS' own tests.)
+   environment variable `DYLARIS_GATEWAY_PROVIDER_URL` overrides it; it exists for DYLARIS' own tests. It is read through the panel's config, so it survives
+   `php artisan config:cache` (clear and rebuild the cache after changing it), and it must be an `https://` URL: anything
+   else stops every gateway call with a message saying so, it never falls back to the production provider.)
 3. Test connection (a link on the API key field). Success reads `Connected: managed gateway plan with read and write
    access.` Otherwise the message says what is missing.
 4. **Eggs that may use the gateway.** The gateway carries Minecraft Java only. Until you save this list, the eggs with
@@ -86,7 +88,10 @@ Admin area, Nodes, pick the node, Gateway tab.
 6. **Address domains** lists the domains users may pick for a server's address on this node: the provider's hoster
    domains (for example `eu.dylaris.com`) and the account's **verified** own domains. Tick the ones to offer, tick
    **Admins only** for those only panel admins may pick, and Save domains. Until you save, every hoster domain is
-   offered. Servers that already have an address keep it.
+   offered. Servers that are behind the gateway keep their address. A Direct server whose remembered address is on a
+   domain no longer offered to the user switching it (removed, or now admins only) cannot switch back with it:
+   `The address <name> is no longer offered on this node. Someone with the address permission has to choose a new one
+   first.`
    - A hoster domain takes a name in front of it: `survival.eu.dylaris.com`.
    - An own domain is the **whole address** (`play.example.com`). The provider verifies each exact name (a `CNAME` to
      the region and a TXT record on `_dylaris-verify.<name>`), so a name in front of a verified domain would be a
@@ -118,7 +123,9 @@ The server's **Gateway** page sits in the server's navigation, next to Network.
    name** in front of it (not for an own domain, which is the whole address). The page offers the server's name reduced
    to what the hoster domain allows (letters only, letters and digits, or a DNS label; at most 63 characters). If
    nothing usable is left or the name is taken, it offers a random one. Without the address permission the plugin picks
-   the name on the first domain. A refusal names the rule that applied.
+   the name on the first domain. A name that already has a route at the provider is never taken, even if the
+   provider's name check calls it free (that check answers "free" for every name the same account holds): taking it
+   would move that route, and its players, to this server. A refusal names the rule that applied.
 2. Apply mode. Some switches ask for confirmation first and spell out what changes (a different direct port, Real IP
    being switched off).
 3. **Restart the server.** Allocation changes only take effect on a restart. The plugin never restarts a server by

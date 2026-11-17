@@ -36,12 +36,21 @@ class PermissionMigrationTest extends PluginTestCase
         $this->assertSame(['control.console', 'gateway.view', 'gateway.mode', 'gateway.address'], $manager->fresh()->permissions);
     }
 
-    public function test_down_gives_manage_back(): void
+    /** Review 0.2.0: a rollback must never give a view-only subuser the old all-in-one permission. */
+    public function test_down_gives_manage_back_only_for_mode_and_address(): void
     {
-        $sub = $this->subuser(['control.console', 'gateway.mode']);
+        $full = $this->subuser(['control.console', 'gateway.view', 'gateway.mode', 'gateway.address']);
+        $both = $this->subuser(['gateway.mode', 'gateway.address']);
+        $view = $this->subuser(['control.console', 'gateway.view']);
+        $mode = $this->subuser(['gateway.mode']);
+        $plain = $this->subuser(['file.read']);
 
         $this->migration()->down();
 
-        $this->assertSame(['control.console', 'gateway.manage'], $sub->fresh()->permissions);
+        $this->assertSame(['control.console', 'gateway.manage'], $full->fresh()->permissions);
+        $this->assertSame(['gateway.manage'], $both->fresh()->permissions);
+        $this->assertSame(['control.console'], $view->fresh()->permissions);
+        $this->assertSame([], $mode->fresh()->permissions);
+        $this->assertSame(['file.read'], $plain->fresh()->permissions);
     }
 }

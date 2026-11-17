@@ -246,6 +246,25 @@ class GatewayWidgetTest extends PluginTestCase
         $this->assertArrayHasKey('vip.example.com', $this->widget()->instance()->domainOptions());
     }
 
+    /** Review 0.2.0: an admin's suggestion (on an admins-only domain) must not be served to the owner from the cache. */
+    public function test_the_suggested_name_is_cached_per_admin_flag(): void
+    {
+        $this->store()->putNode(new NodeState($this->server->node_id, 'link-1', 'eu', Mode::cases(), '172.18.0.1', [
+            new AllowedDomain('vip.example.net', false, true, 'letters'),
+            new AllowedDomain('play.example.net', false, false, 'dns'),
+        ]));
+        $this->server->update(['name' => 'Lobby 2']);
+        $owner = $this->server->user;
+
+        $admin = User::factory()->create();
+        $admin->syncRoles(Role::getRootAdmin());
+        $this->actingAs($admin);
+        $this->widget()->assertFormSet(['label' => 'lobby', 'domain' => 'vip.example.net']);
+
+        $this->actingAs($owner);
+        $this->widget()->assertFormSet(['label' => 'lobby-2', 'domain' => 'play.example.net']);
+    }
+
     public function test_only_admins_only_domains_leave_the_address_fields_out_and_say_so(): void
     {
         $this->store()->putNode(new NodeState($this->server->node_id, 'link-1', 'eu', Mode::cases(), '172.18.0.1', [new AllowedDomain('vip.example.com', true, true)]));
@@ -638,9 +657,10 @@ class GatewayWidgetTest extends PluginTestCase
         $this->assertSame($first, $this->providerCalls('GET regions'), 'label suggestion and domains cached');
 
         $this->inMode(Mode::Both);
+        $before = $this->providerCalls('GET routes'); // the name suggestion read the list once while Direct
         $this->widget();
         $this->widget();
-        $this->assertSame(1, $this->providerCalls('GET routes'), 'status cached per server');
+        $this->assertSame($before + 1, $this->providerCalls('GET routes'), 'status cached per server');
     }
 
     public function test_page_views_wait_while_the_provider_asked_to_wait(): void

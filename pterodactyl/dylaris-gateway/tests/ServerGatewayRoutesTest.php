@@ -408,9 +408,10 @@ class ServerGatewayRoutesTest extends ExtensionTestCase
         $this->assertSame($first, $this->providerCalls('GET regions'), 'label suggestion and domains cached');
 
         $this->inMode(Mode::Both);
+        $before = $this->providerCalls('GET routes'); // the name suggestion read the list once while Direct
         $this->getJson($this->url())->assertOk();
         $this->getJson($this->url())->assertOk();
-        $this->assertSame(1, $this->providerCalls('GET routes'), 'status cached per server');
+        $this->assertSame($before + 1, $this->providerCalls('GET routes'), 'status cached per server');
     }
 
     public function test_page_views_wait_while_the_provider_asked_to_wait(): void

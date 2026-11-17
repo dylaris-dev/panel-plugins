@@ -35,6 +35,7 @@ class DylarisGatewayServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->registerCore();
+        $this->mergeConfigFrom(dirname(__DIR__, 2) . '/config/dylaris-gateway.php', 'dylaris-gateway');
 
         $this->app->singleton(StateStore::class, EloquentStateStore::class);
         $this->app->singleton(PanelAdapter::class, PelicanPanelAdapter::class);
