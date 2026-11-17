@@ -128,8 +128,8 @@ is needed, and offers a **Restart now** button to whoever may restart the server
 - A route you create by hand in the DYLARIS dashboard on the link of a plugin node, under an address name a server of
   that panel uses or keeps, is deleted or retargeted by the reconcile. Use a name no panel server uses, or leave plugin
   nodes' links to the plugin.
-- A Bedrock join has not been proven with a real Bedrock client yet. The switch, the key download and Floodgate loading
-  the key were tested.
+- Bedrock: a real join was proven (Bedrock client 1.26.65, DYLARIS' Geyser 2.12.1-b1304, Paper 1.21.11 with Floodgate
+  2.2.5 and ViaVersion 5.12.2). A server older than the newest Java version needs ViaVersion.
 - Pterodactyl: the loopback allocation is hidden in the panel UI only; a subuser with allocation rights could still
   change it through the panel API. The reconcile repairs that within 5 minutes.
 - Region choice for a node is final unless you disconnect it (which retires its link kit, and kits are limited).

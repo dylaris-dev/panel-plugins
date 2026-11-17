@@ -22,13 +22,21 @@ One version covers both plugins; the release assets are `dylaris-gateway-pelican
 
 ### Changed
 - The per-node domain list on the node's Gateway tab is gone. Updating moves it into the panel-wide list: a domain
-  ticked on any node is kept, one marked Admins only on any node is switched off; if any node never saved a list,
-  every official domain is switched on, otherwise the official domains no node ticked start switched off.
+  ticked on any node is kept, one marked Admins only on any node is switched off, always. If a connected node never
+  saved a list, official domains new to the list arrive switched on; otherwise those no node ticked start switched off.
+  Panel nodes never set up for the gateway are ignored.
 - New official domains arrive switched on, so users get DYLARIS' domains without an admin step.
 - An official domain DYLARIS no longer lists stays in the list as `No longer offered` and cannot be picked; existing
   addresses under it are left alone.
 - The address dropdown reads the list from the panel's database on every view instead of a 10 minute cache, so a
   change to the list shows at once.
+- A known region stays with its domain when one sync answer lacks the region (Core lists a region only while one of
+  its edges is registered), so a domain never becomes "every region" during an edge outage.
+- The on-demand sync honours the provider's Retry-After and runs once at a time; a sync and an own-domain add, verify
+  or remove never interleave.
+- Verify on an own domain already verified in the DYLARIS panel updates the row instead of failing.
+- A real Bedrock join was proven: Bedrock client 1.26.65, DYLARIS' Geyser 2.12.1-b1304, Paper 1.21.11 with Floodgate
+  2.2.5 and ViaVersion 5.12.2.
 - Docs: the Bedrock steps say that a server on an older Minecraft Java version also needs ViaVersion, because DYLARIS'
   Geyser always speaks the newest Java version; without it Bedrock players see `Outdated server!`.
 
@@ -67,7 +75,7 @@ First public release, for both plugins.
 - A route created by hand in the DYLARIS dashboard on the link of a plugin node, under an address name a server of that
   panel uses or keeps, is deleted or retargeted by the reconcile. Routes under other names are never touched.
 - An own domain is always the whole address; a name in front of it would be a different, unverified name.
-- A Bedrock join has not been proven with a real Bedrock client yet.
+- A Bedrock join had not been proven with a real Bedrock client yet (proven since, see 0.2.0).
 - Pterodactyl: the loopback allocation is hidden in the UI only; the reconcile repairs a change within 5 minutes.
 - Pterodactyl 1.x has no plugin system; see `docs/pterodactyl-1x.md` (not tested on a 1.x panel).
 

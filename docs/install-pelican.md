@@ -107,9 +107,11 @@ Admin area, Advanced, **Gateway domains**. One list for the whole panel: the dom
   show up with the next sync, switched off.
 - A hoster domain takes a name in front of it: `survival.eu.dylaris.com`.
 
-Updating from 0.1.x moves the per-node lists into this list: a domain ticked on any node is kept, one marked Admins
-only on any node is switched off. If any node never saved a list (it offered every official domain), every official
-domain is switched on; otherwise the official domains no node ticked start switched off.
+Updating from 0.1.x moves the per-node lists into this list: a domain ticked on any node is kept, and one marked Admins
+only on any node is switched off, always. Only gateway nodes count: if a connected node never saved a list (it offered
+every official domain), official domains new to the list arrive switched on; otherwise the official domains no node
+ticked start switched off. Panel nodes never set up for the gateway are ignored. Regions and own-domain states arrive
+with the first sync after the update: click **Refresh** once after updating.
 
 ## Permissions
 
@@ -194,8 +196,8 @@ Switch Bedrock players on on the Gateway page, then:
    on 1.21.11` (with the server's version).
 4. Restart the server.
 
-**A Bedrock join has not been proven with a real Bedrock client yet.** The switch, the provider flag, the key download and
-Floodgate loading the key were tested.
+A real Bedrock join was proven on 2026-11-17: Bedrock client 1.26.65 through DYLARIS' Geyser 2.12.1-b1304 to Paper
+1.21.11 with Floodgate 2.2.5 and ViaVersion 5.12.2, through a gateway address made by the plugin.
 
 ## Reconcile
 
@@ -232,4 +234,6 @@ until the window has passed. The command then prints `The provider asked to wait
 page a refused call shows the provider's own sentence; try again a little later. While the window runs, the page makes no
 provider call either and says `The gateway provider asked to wait a moment. Try again shortly.` The page keeps its status
 line for 30 seconds and its suggested address name for 10 minutes, so page views do not use up the read limit. The
-domain list is read from the panel's database; the provider is asked at most once an hour for it, plus Refresh.
+domain list is read from the panel's database; the provider is asked about once an hour for it, plus Refresh;
+after a failed sync at most every 5 minutes (longer when the provider's Retry-After says so), and only one request
+syncs at a time.
