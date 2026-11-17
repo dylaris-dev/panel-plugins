@@ -1,0 +1,18 @@
+{
+ "cnameTarget": "",
+ "customDomainsEnabled": true,
+ "hosterDomains": [
+  {
+   "domain": "play.e2e.test",
+   "validation": "alphanumeric"
+  }
+ ],
+ "items": [
+  {
+   "region": "e2e",
+   "wildcard": "*.play.e2e.test",
+   "online": true
+  }
+ ],
+ "success": true
+}

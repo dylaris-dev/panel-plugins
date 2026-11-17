@@ -1,0 +1,48 @@
+{
+    "id": "dylaris-gateway",
+    "name": "DYLARIS Gateway",
+    "version": "0.1.0",
+    "description": "Put a server behind the DYLARIS Managed Gateway: direct, both, or gateway only. Calls go only to the provider URL the admin enters in the settings.",
+    "author": "DYLARIS",
+    "provider": "Dylaris\\GatewayPtero\\ExtensionServiceProvider",
+    "autoload": {
+        "Dylaris\\GatewayPtero\\": "src",
+        "Dylaris\\GatewayPanel\\": "core-src"
+    },
+    "ui": {
+        "entry": "dist/client.js",
+        "mode": "native",
+        "screens": [
+            {
+                "id": "node-gateway",
+                "area": "admin",
+                "parent": "admin.node",
+                "path": "gateway",
+                "nav": {
+                    "label": "Gateway",
+                    "icon": "route"
+                }
+            },
+            {
+                "id": "server-gateway",
+                "area": "server",
+                "path": "gateway",
+                "permission": [
+                    "ext.dylaris-gateway.manage"
+                ],
+                "nav": {
+                    "label": "Gateway",
+                    "icon": "route"
+                }
+            }
+        ],
+        "views": [
+            "server.allocations"
+        ]
+    },
+    "requires": {
+        "panel": "^2.0.0-beta.2",
+        "sdk": "^2.0.0-beta.6",
+        "php": "^8.4"
+    }
+}

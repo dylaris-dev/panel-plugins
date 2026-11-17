@@ -1,0 +1,21 @@
+{
+ "asOf": "2026-11-16T00:44:51Z",
+ "items": [],
+ "peak": {
+  "last30Days": {
+   "java": 1,
+   "bedrock": 2,
+   "total": 2
+  },
+  "today": {
+   "java": 0,
+   "bedrock": 0,
+   "total": 0
+  }
+ },
+ "success": true,
+ "total": {
+  "java": 0,
+  "bedrock": 0
+ }
+}

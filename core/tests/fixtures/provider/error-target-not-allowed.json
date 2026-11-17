@@ -1,0 +1,5 @@
+{
+ "code": "target_not_allowed",
+ "error": "This target is not allowed. Use one of your servers (mc-<uuid>) or a private address; public targets need to be enabled for your account.",
+ "success": false
+}

@@ -1,0 +1,19 @@
+{
+ "account": {
+  "userId": "00000000-0000-4000-8000-000000000001",
+  "product": "managed",
+  "managed": true,
+  "entitlementSource": "plan",
+  "suspended": false,
+  "scopes": [
+   "gateway.read",
+   "gateway.write"
+  ],
+  "limits": {
+   "maxLinks": 2,
+   "maxRoutes": 50,
+   "maxCustomDomains": null
+  }
+ },
+ "success": true
+}

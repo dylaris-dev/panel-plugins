@@ -1,0 +1,162 @@
+# DYLARIS Gateway for Pelican
+
+Puts a game server behind the DYLARIS Managed Gateway from inside the Pelican panel. Each server runs in one of three
+modes:
+
+| Mode | What it does |
+|---|---|
+| Direct | Players connect to the node's public IP and port, as before. No gateway address. |
+| Both | Players can use the gateway address or the direct address. |
+| Gateway only | Only the gateway address works. The public port is closed: the server listens on the node's Docker interface only. |
+
+Tested against Pelican `1.0.0-rc.3` with Wings `1.0.0-rc.2`. The plugin declares `panel_version` `^1.0.0-rc.3` and
+needs PHP 8.4, which Pelican rc.3 requires anyway.
+
+## What you need
+
+- A DYLARIS account on the managed gateway plan, and an API key with `gateway.read` and `gateway.write`.
+- **A dedicated provider API key for this panel install.** Never share one key between two panels, and never reuse the key
+  of a DYLARIS Core you run yourself: such a Core releases the own-domain claims it does not know about every 5 minutes,
+  so two installs sharing one provider account work against each other.
+- Docker on each Wings node: the link container runs there (the plugin shows the compose file).
+
+## Download
+
+Download `dylaris-gateway-<version>.zip` and `SHA256SUMS` from the latest release on
+[GitHub Releases](https://github.com/dylaris-dev/panel-plugins/releases), into the panel directory, and check the file
+before you install it:
+
+```
+sha256sum --ignore-missing -c SHA256SUMS
+```
+
+It must print `dylaris-gateway-<version>.zip: OK`. Without `sha256sum`, compare the output of
+`shasum -a 256 <file>` (macOS) or `Get-FileHash <file>` (Windows PowerShell) with the file's line in `SHA256SUMS`.
+
+## Install
+
+1. Unzip `dylaris-gateway-<version>.zip` into the panel's `plugins/` folder, so that `plugins/dylaris-gateway/plugin.json`
+   exists.
+2. Run `php artisan p:plugin:install dylaris-gateway` from the panel directory. It prints `Plugin installed and enabled.`
+3. Pelican keeps a plugin's status in `plugin.json`. Overwriting the folder with a fresh copy resets the status to not
+   installed, so run `p:plugin:install` again after every update.
+
+## Connect the panel to the provider
+
+1. Admin area, Plugins, DYLARIS Gateway, Settings.
+2. Enter the provider URL (default `https://panel.dylaris.com`) and the API key. Only `http://` and `https://` URLs are
+   accepted; an `http://` URL shows a warning because the key would travel unencrypted.
+3. Test connection (a link on the API key field). Success reads `Connected: managed gateway plan with read and write
+   access.` Otherwise the message says what is missing.
+4. Save. The key is stored encrypted with the panel's `APP_KEY` and is never shown again: the field stays empty and the
+   help text says a key is saved. Leave it blank to keep it. A saved key is only ever sent to the saved URL, so a new
+   URL is refused without the key: `Enter the API key again when you change the provider URL.`
+
+If `APP_KEY` changes, the stored key can no longer be decrypted. The plugin then says `The stored API key can no longer be
+read. Enter it again.` Enter the key again in Settings.
+
+## Connect a node
+
+Admin area, Nodes, pick the node, Gateway tab.
+
+1. Pick the **region** the node belongs to. It cannot be changed later without retiring this node's link kit, and the
+   number of kits is limited, so choose with care. The confirm dialog says the same.
+2. **Wings interface IP.** The default is `172.18.0.1`. Wings does not bind a `127.0.0.1` allocation to loopback: it
+   rewrites it to its Docker network interface (`docker.network.interface` in the Wings config), and the link reaches the
+   server there. If the node's Docker network differs from the default, change this value to that interface's IP before
+   you connect.
+3. Connect node, confirm. The plugin mints a link kit and shows a Docker Compose snippet **once**. Copy it to the node
+   (for example `/opt/dylaris-link/docker-compose.yml`, mode 600) and start it with `docker compose up -d`. The panel does
+   not store the link key and the snippet is gone after a reload; to get a new one, disconnect the node and connect it
+   again.
+4. The tab shows `Link offline` until the link is up, then `Link online`.
+5. **Allowed modes** limits what servers on this node may use (Direct, Both, Gateway only). Panel admins can always pick
+   every mode.
+
+Disconnect node revokes the node's link kit.
+
+## Switch a server
+
+A server's owner, panel admins and subusers with the **Manage the gateway** permission (`gateway.manage`, granted in the
+server's subuser settings) see the DYLARIS gateway widget on the server's console page.
+
+1. Pick a mode and, for Both or Gateway only, an address name. The widget offers the server's name reduced to what the
+   provider's hoster domain allows (letters only, letters and digits, or a DNS label; at most 63 characters). If nothing
+   usable is left or the name is taken, it offers a random one. A refusal names the rule that applied.
+2. Apply. Some switches ask for confirmation first and spell out what changes (a different direct port, Real IP being
+   switched off).
+3. **Restart the server.** Allocation changes only take effect on a restart. The plugin never restarts a server itself; the
+   widget shows a banner until it sees the server running again.
+
+What the plugin does with allocations: it creates a `127.0.0.1:<port>` allocation on the node for the gateway; in Gateway
+only that allocation becomes the primary and the public one is released; going back to Direct removes the loopback
+allocation. Switching back to Direct or Both takes the old public address (IP and port) if it is still free, otherwise
+a free port on the same IP, then the old port on another IP, then the lowest free one, and says so in the confirm step.
+Loopback addresses (`127.0.0.0/8`, `::1`) are never taken as public.
+
+### Ports 1024 and below
+
+Ports 1024 and below cannot use the gateway modes: Pterodactyl refuses an allocation on those ports, Pelican one below
+1024, and both plugins keep the same rule. The switch is refused with `Port <n> cannot use the gateway: the panel allows
+no 127.0.0.1 allocation on port 1024 or below. Give the server a primary port above 1024 first.` Such a server stays on
+Direct; the reconcile reports the same sentence if a gateway server's primary port is moved that low.
+
+### Real player IP
+
+Offered in Gateway only. It makes the route send a PROXY protocol header, so the server must expect one:
+
+- Paper: `proxies.proxy-protocol: true` in `config/paper-global.yml`.
+- Velocity: `haproxy-protocol` in `velocity.toml`.
+
+The plugin does not edit server files. Until the server is set, nobody can connect through the gateway.
+
+**Leaving Gateway only with Real IP on:** the switch turns Real IP off at the gateway, but the server still expects PROXY
+headers. Turn off proxy-protocol in the server's config **before** you restart, or nobody can connect, neither direct nor
+through the gateway. The confirm step and the notice say the same.
+
+### Bedrock and Floodgate
+
+Switch Bedrock players on in the widget, then:
+
+1. Download the Floodgate key from the widget (`key.pem`).
+2. Install Floodgate on the server and put the key at `plugins/floodgate/key.pem`.
+3. Restart the server.
+
+**A Bedrock join has not been proven with a real Bedrock client yet.** The switch, the provider flag, the key download and
+Floodgate loading the key were tested.
+
+## Reconcile
+
+The plugin compares the panel with the provider every 5 minutes (`dylaris-gateway:reconcile`, scheduled with
+`withoutOverlapping`, and under the same cache lock as every mode change). It:
+
+- removes the route and state of a server that was deleted in the panel,
+- retargets the route and the loopback allocation when the server's primary port changed,
+- follows a server that moved to another node, or, if that node has no link, shows `This node is not connected to the
+  gateway.` with the next step (connect the node, or move the server) and leaves the route alone,
+- recreates a route that is missing at the provider,
+- sets Real player IP at the provider back to what the page shows, if a call that got no answer left them apart,
+- says so on the server page when a Gateway only server holds a public allocation (players could still join it
+  directly), and changes nothing,
+- leaves provider routes it did not create alone. A Direct server keeps its address name for a later switch; a route
+  under that name on a link that is not one of the plugin's nodes (made in the dashboard) is never deleted.
+
+Mode changes, Real player IP and Bedrock take the same lock as the reconcile. If a run holds it the change is refused
+with `The gateway is being updated, try again in a moment.`
+
+Run it by hand with `php artisan dylaris-gateway:reconcile`. It prints a summary, then one line per fixed server and per
+error:
+
+```
+Routes: 0 created, 0 deleted, 0 retargeted. Errors: 0.
+```
+
+## Rate limits
+
+The provider limits a key: 120 reads and 30 writes per minute, 10 link kits per hour, plus the key's own rate (60 per
+minute by default). A reconcile reads the route list once per run, not once per server. When the provider answers 429 the
+plugin honours `Retry-After` (60 seconds if the header is missing): the run stops, and later runs make no provider call
+until the window has passed. The command then prints `The provider asked to wait N s; the run stopped.` In the widget a
+refused call shows the provider's own sentence; try again a little later. While the window runs, the widget makes no
+provider call either and says `The gateway provider asked to wait a moment. Try again shortly.` The widget keeps its
+status line for 30 seconds and its suggested address name for 10 minutes, so console views do not use up the read limit.

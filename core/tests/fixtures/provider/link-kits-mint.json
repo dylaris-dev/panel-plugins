@@ -1,0 +1,6 @@
+{
+ "link_id": "link-0000000000000000000000000000000b",
+ "link_key": "<redacted len=64>",
+ "note": "Shown once. Paste it as LINK_KEY into the route-only .env.",
+ "success": true
+}

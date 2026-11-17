@@ -1,0 +1,1 @@
+{"success": false, "code": "rate_limited", "error": "Too many requests for this key. Try again in 60 seconds.", "_synthetic": "synthetic: same shape as the provider error, served with Retry-After: 60"}

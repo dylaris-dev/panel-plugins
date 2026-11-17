@@ -1,0 +1,13 @@
+.superpowers/
+vendor/
+node_modules/
+*.zip
+*.pteroext
+.env
+.phpunit.result.cache
+pelican/dylaris-gateway/core-src/
+pterodactyl/dylaris-gateway/core-src/
+pterodactyl/dylaris-gateway/dist/
+dist/
+__pycache__/
+*.pyc

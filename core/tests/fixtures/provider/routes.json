@@ -1,0 +1,245 @@
+{
+ "items": [
+  {
+   "bedrock": {
+    "bedrock": false,
+    "dns_checked_at": null,
+    "dns_failing_since": null,
+    "dns_status": "",
+    "has_key": true,
+    "java": true
+   },
+   "bedrock_active": true,
+   "bedrock_allowed": true,
+   "core_owned": true,
+   "domain": "survival.play.e2e.test",
+   "link_id": "link-0000000000000000000000000000000a",
+   "owner_id": "00000000-0000-4000-8000-000000000001",
+   "proxy_protocol": true,
+   "server_uuid": "",
+   "target_ip": "mc-00000000-0000-4000-8000-000000000003",
+   "target_port": 25565,
+   "voice": {
+    "enabled": true,
+    "failing_since": null,
+    "host": "survival.play.e2e.test",
+    "mod_host": "survival.play.e2e.test",
+    "name_target": "",
+    "port": 26002,
+    "public_host": "",
+    "public_state": "",
+    "public_state_at": null,
+    "target_port": 24454
+   },
+   "voice_allowed": true
+  },
+  {
+   "bedrock": {
+    "bedrock": false,
+    "dns_checked_at": null,
+    "dns_failing_since": null,
+    "dns_status": "",
+    "has_key": false,
+    "java": true
+   },
+   "bedrock_active": true,
+   "bedrock_allowed": true,
+   "core_owned": true,
+   "domain": "foreign.own.e2e.test",
+   "link_id": "link-0000000000000000000000000000000a",
+   "owner_id": "00000000-0000-4000-8000-000000000001",
+   "proxy_protocol": true,
+   "server_uuid": "",
+   "target_ip": "mc-00000000-0000-4000-8000-000000000003",
+   "target_port": 25565,
+   "voice": {
+    "enabled": false,
+    "failing_since": null,
+    "name_target": "",
+    "public_host": "",
+    "public_state": "",
+    "public_state_at": null
+   },
+   "voice_allowed": true
+  },
+  {
+   "bedrock": {
+    "bedrock": false,
+    "dns_checked_at": null,
+    "dns_failing_since": null,
+    "dns_status": "",
+    "has_key": false,
+    "java": true
+   },
+   "bedrock_active": true,
+   "bedrock_allowed": true,
+   "core_owned": true,
+   "domain": "partial.own.e2e.test",
+   "link_id": "link-0000000000000000000000000000000a",
+   "owner_id": "00000000-0000-4000-8000-000000000001",
+   "proxy_protocol": true,
+   "server_uuid": "",
+   "target_ip": "mc-00000000-0000-4000-8000-000000000003",
+   "target_port": 25565,
+   "voice": {
+    "enabled": false,
+    "failing_since": null,
+    "name_target": "",
+    "public_host": "",
+    "public_state": "",
+    "public_state_at": null
+   },
+   "voice_allowed": true
+  },
+  {
+   "bedrock": {
+    "bedrock": false,
+    "dns_checked_at": null,
+    "dns_failing_since": null,
+    "dns_status": "",
+    "has_key": false,
+    "java": true
+   },
+   "bedrock_active": true,
+   "bedrock_allowed": true,
+   "core_owned": true,
+   "domain": "srvonly.own.e2e.test",
+   "link_id": "link-0000000000000000000000000000000a",
+   "owner_id": "00000000-0000-4000-8000-000000000001",
+   "proxy_protocol": true,
+   "server_uuid": "",
+   "target_ip": "mc-00000000-0000-4000-8000-000000000003",
+   "target_port": 25565,
+   "voice": {
+    "enabled": false,
+    "failing_since": null,
+    "name_target": "",
+    "public_host": "",
+    "public_state": "",
+    "public_state_at": null
+   },
+   "voice_allowed": true
+  },
+  {
+   "bedrock": {
+    "bedrock": false,
+    "dns_checked_at": null,
+    "dns_failing_since": null,
+    "dns_status": "",
+    "has_key": false,
+    "java": true
+   },
+   "bedrock_active": true,
+   "bedrock_allowed": true,
+   "core_owned": true,
+   "domain": "private.own.e2e.test",
+   "link_id": "link-0000000000000000000000000000000a",
+   "owner_id": "00000000-0000-4000-8000-000000000001",
+   "proxy_protocol": true,
+   "server_uuid": "",
+   "target_ip": "mc-00000000-0000-4000-8000-000000000003",
+   "target_port": 25565,
+   "voice": {
+    "enabled": false,
+    "failing_since": null,
+    "name_target": "",
+    "public_host": "",
+    "public_state": "",
+    "public_state_at": null
+   },
+   "voice_allowed": true
+  },
+  {
+   "bedrock": {
+    "bedrock": false,
+    "dns_checked_at": null,
+    "dns_failing_since": null,
+    "dns_status": "",
+    "has_key": false,
+    "java": true
+   },
+   "bedrock_active": true,
+   "bedrock_allowed": true,
+   "core_owned": true,
+   "domain": "v6.own.e2e.test",
+   "link_id": "link-0000000000000000000000000000000a",
+   "owner_id": "00000000-0000-4000-8000-000000000001",
+   "proxy_protocol": true,
+   "server_uuid": "",
+   "target_ip": "mc-00000000-0000-4000-8000-000000000003",
+   "target_port": 25565,
+   "voice": {
+    "enabled": false,
+    "failing_since": null,
+    "name_target": "",
+    "public_host": "",
+    "public_state": "",
+    "public_state_at": null
+   },
+   "voice_allowed": true
+  },
+  {
+   "bedrock": {
+    "bedrock": true,
+    "dns_checked_at": "2026-11-15T18:28:28.821046Z",
+    "dns_failing_since": null,
+    "dns_status": "ok",
+    "has_key": true,
+    "java": true
+   },
+   "bedrock_active": true,
+   "bedrock_allowed": true,
+   "core_owned": true,
+   "domain": "a.own.e2e.test",
+   "link_id": "link-0000000000000000000000000000000a",
+   "owner_id": "00000000-0000-4000-8000-000000000001",
+   "proxy_protocol": true,
+   "server_uuid": "",
+   "target_ip": "mc-00000000-0000-4000-8000-000000000003",
+   "target_port": 25565,
+   "voice": {
+    "enabled": false,
+    "failing_since": null,
+    "name_target": "",
+    "public_host": "",
+    "public_state": "",
+    "public_state_at": null
+   },
+   "voice_allowed": true
+  },
+  {
+   "bedrock": {
+    "bedrock": true,
+    "dns_checked_at": "2026-11-15T19:18:45.665462Z",
+    "dns_failing_since": null,
+    "dns_status": "ok",
+    "has_key": true,
+    "java": true
+   },
+   "bedrock_active": true,
+   "bedrock_allowed": true,
+   "core_owned": true,
+   "domain": "cname.own.e2e.test",
+   "link_id": "link-0000000000000000000000000000000a",
+   "owner_id": "00000000-0000-4000-8000-000000000001",
+   "proxy_protocol": true,
+   "server_uuid": "",
+   "target_ip": "mc-00000000-0000-4000-8000-000000000004",
+   "target_port": 25565,
+   "voice": {
+    "enabled": true,
+    "failing_since": null,
+    "host": "voice.play.e2e.test",
+    "mod_host": "voice.play.e2e.test",
+    "name_target": "voice.play.e2e.test",
+    "port": 26001,
+    "public_host": "",
+    "public_state": "",
+    "public_state_at": null,
+    "target_port": 24454
+   },
+   "voice_allowed": true
+  }
+ ],
+ "success": true
+}

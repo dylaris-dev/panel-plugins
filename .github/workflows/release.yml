@@ -1,0 +1,67 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the tag matches both manifests
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          pelican="$(jq -r .version pelican/dylaris-gateway/plugin.json)"
+          ptero="$(jq -r .version pterodactyl/dylaris-gateway/extension.json)"
+          echo "tag $version, plugin.json $pelican, extension.json $ptero"
+          if [ "$version" != "$pelican" ] || [ "$version" != "$ptero" ]; then
+            echo "::error::Tag $TAG does not match plugin.json ($pelican) and extension.json ($ptero)."
+            exit 1
+          fi
+      - name: Build both packages
+        run: bash tools/build-release.sh
+      - name: Check the asset names
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          test -f "dist/dylaris-gateway-$version.zip"
+          test -f "dist/dylaris-gateway-$version.pteroext"
+          test -f dist/SHA256SUMS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: packages
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: packages
+          path: dist
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          cd dist
+          sha256sum -c SHA256SUMS
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" \
+            --notes "DYLARIS Gateway $version. Pelican: dylaris-gateway-$version.zip. Pterodactyl 2.0: dylaris-gateway-$version.pteroext. Check the files with: sha256sum -c SHA256SUMS. Changes: see CHANGELOG.md." \
+            "dylaris-gateway-$version.zip" "dylaris-gateway-$version.pteroext" SHA256SUMS

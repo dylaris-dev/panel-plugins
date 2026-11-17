@@ -1,0 +1,13 @@
+{
+    "id": "dylaris-gateway",
+    "name": "DYLARIS Gateway",
+    "author": "DYLARIS",
+    "version": "0.1.0",
+    "description": "Put a server behind the DYLARIS Managed Gateway: direct, both, or gateway only. Calls go only to the provider URL the admin enters in the settings.",
+    "category": "plugin",
+    "url": "https://github.com/dylaris-dev/panel-plugins",
+    "namespace": "Dylaris\\GatewayPelican",
+    "class": "DylarisGatewayPlugin",
+    "panel_version": "^1.0.0-rc.3",
+    "api_version": 1
+}

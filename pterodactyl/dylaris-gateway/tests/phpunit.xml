@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Run from a Pterodactyl v2.0.0-beta.2 checkout with this extension in extensions/dylaris-gateway (tools/test-ptero.sh). -->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         bootstrap="bootstrap.php"
+         colors="true"
+         failOnWarning="true"
+         failOnRisky="true"
+         failOnDeprecation="false"
+>
+    <testsuites>
+        <testsuite name="dylaris-gateway">
+            <directory>.</directory>
+        </testsuite>
+    </testsuites>
+    <!-- As in Pterodactyl's phpunit.xml; the database and APP_KEY come from .env (.env.ci). -->
+    <php>
+        <env name="APP_ENV" value="testing"/>
+        <env name="CACHE_STORE" value="array"/>
+        <env name="DB_DATABASE" value="testing"/>
+        <env name="MAIL_MAILER" value="array"/>
+        <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="RECAPTCHA_ENABLED" value="(false)"/>
+        <env name="SESSION_DRIVER" value="array"/>
+    </php>
+</phpunit>
